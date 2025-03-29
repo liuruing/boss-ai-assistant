@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Boss直聘AI助手</title>
+  <style>
+    body {
+      font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      margin: 0;
+      padding: 0;
+      width: 600px;
+      background-color: #f5f7fa;
+      color: #333;
+    }
+    
+    /* 头部样式 */
+    .header {
+      background-color: #1e88e5;
+      color: white;
+      padding: 15px 20px;
+      text-align: center;
+      border-bottom: 1px solid #1565c0;
+      border-radius: 0 0 15px 15px;
+    }
+    
+    .header h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 500;
+    }
+    
+    .model-badge {
+      background-color: rgba(255, 255, 255, 0.2);
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      margin-top: 5px;
+      display: inline-block;
+    }
+    
+    /* 主内容区域 */
+    .container {
+      padding: 15px;
+    }
+    
+    /* 两列布局 */
+    .two-column {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+    
+    .column {
+      flex: 1;
+      background: white;
+      border-radius: 15px;
+      padding: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* 单列布局 */
+    .single-column {
+      background: white;
+      border-radius: 15px;
+      padding: 15px;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* 区块标题 */
+    .section-title {
+      font-size: 16px;
+      font-weight: 500;
+      margin-top: 0;
+      margin-bottom: 15px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #eee;
+      color: #1e88e5;
+    }
+    
+    /* 状态指示器 */
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+    
+    .status-dot.success {
+      background-color: #4caf50;
+    }
+    
+    .status-dot.pending {
+      background-color: #ff9800;
+    }
+    
+    .status-dot.error {
+      background-color: #f44336;
+    }
+    
+    /* 按钮样式 */
+    .btn {
+      background-color: #1e88e5;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.3s;
+    }
+    
+    .btn:hover {
+      background-color: #1976d2;
+    }
+    
+    .btn:disabled {
+      background-color: #b0bec5;
+      cursor: not-allowed;
+    }
+    
+    .btn-secondary {
+      background-color: #78909c;
+    }
+    
+    .btn-secondary:hover {
+      background-color: #607d8b;
+    }
+    
+    .btn-success {
+      background-color: #4caf50;
+    }
+    
+    .btn-success:hover {
+      background-color: #43a047;
+    }
+    
+    /* 文本区域 */
+    textarea {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      resize: vertical;
+      font-family: inherit;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    
+    /* 内容显示区域 */
+    .content-box {
+      background-color: #f5f7fa;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 10px;
+      margin: 10px 0;
+      max-height: 120px;
+      overflow-y: auto;
+      font-size: 14px;
+    }
+    
+    /* 底部工具栏 */
+    .footer-toolbar {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 10px;
+    }
+    
+    /* 进度条 */
+    .progress-container {
+      margin: 10px 0;
+      background-color: #e0e0e0;
+      border-radius: 10px;
+      height: 6px;
+      overflow: hidden;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #1e88e5;
+      transition: width 0.3s ease;
+    }
+    
+    .progress-text {
+      font-size: 12px;
+      color: #757575;
+      margin-top: 5px;
+    }
+    
+    .error-text {
+      color: #f44336;
+    }
+    
+    /* 隐藏元素 */
+    .hidden {
+      display: none;
+    }
+    
+    /* 模态框 */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+    }
+    
+    .modal.show {
+      display: block;
+    }
+    
+    .modal-content {
+      position: relative;
+      background-color: white;
+      margin: 10% auto;
+      padding: 20px;
+      width: 80%;
+      max-width: 500px;
+      border-radius: 15px;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    
+    .modal-title {
+      margin: 0;
+      font-size: 18px;
+      color: #333;
+    }
+    
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #757575;
+    }
+    
+    /* 表单样式 */
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 14px;
+      color: #333;
+    }
+    
+    .form-group input {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    
+    /* 警告提示 */
+    .warning-box {
+      background-color: #fff3e0;
+      border-left: 4px solid #ff9800;
+      padding: 10px 15px;
+      margin: 10px 0;
+      font-size: 14px;
+      color: #e65100;
+      border-radius: 10px;
+    }
+    
+    /* 文件上传 */
+    .file-upload {
+      display: none;
+    }
+    
+    /* 按钮组 */
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <!-- 头部 -->
+  <div class="header">
+    <h1>Boss直聘AI助手</h1>
+    <div id="model-badge" class="model-badge">模型: o3-mini</div>
+  </div>
+  
+  <!-- 主内容区域 -->
+  <div class="container">
+    <!-- 单列布局 - 打招呼语生成与发送 (放在顶部) -->
+    <div class="single-column">
+      <h2 class="section-title">打招呼语生成与发送</h2>
+      
+      <!-- 打招呼语风格选择 -->
+      <div style="margin-bottom: 10px;">
+        <label for="message-style" style="font-size: 14px; margin-right: 10px;">风格:</label>
+        <select id="message-style" style="padding: 5px; border-radius: 10px; border: 1px solid #ddd;">
+          <option value="professional">专业正式</option>
+          <option value="friendly">友好亲切</option>
+          <option value="enthusiastic">热情积极</option>
+          <option value="concise">简洁明了</option>
+        </select>
+      </div>
+      
+      <!-- 按钮组 -->
+      <div class="button-group">
+        <button id="generate-btn" class="btn" disabled>生成打招呼语</button>
+        <button id="send-btn" class="btn btn-success" disabled>发送到Boss直聘</button>
+      </div>
+      
+      <!-- 打招呼语内容 -->
+      <textarea id="message-content" rows="8" placeholder="生成的打招呼语将显示在这里..."></textarea>
+      
+      <!-- 生成进度 -->
+      <div id="message-progress-container" class="hidden">
+        <div class="progress-container">
+          <div id="message-progress-bar" class="progress-bar" style="width: 0%"></div>
+        </div>
+        <div id="message-progress-text" class="progress-text">准备生成...</div>
+      </div>
+    </div>
+    
+    <!-- 两列布局 (放在底部) -->
+    <div class="two-column">
+      <!-- 左侧列 - 简历管理 -->
+      <div class="column">
+        <h2 class="section-title">简历管理</h2>
+        
+        <!-- 简历状态 -->
+        <div class="status-indicator">
+          <div id="resume-status-dot" class="status-dot pending"></div>
+          <div id="resume-status">未上传简历</div>
+        </div>
+        
+        <!-- 上传简历 -->
+        <div>
+          <button id="upload-btn" class="btn">上传简历</button>
+          <input type="file" id="resume-upload" class="file-upload" accept=".pdf,.txt,.docx">
+        </div>
+        
+        <!-- 简历内容预览 -->
+        <div id="resume-preview" class="hidden">
+          <div id="resume-content" class="content-box">未上传简历</div>
+          
+          <!-- 简历上传进度 -->
+          <div id="resume-progress-container" class="hidden">
+            <div class="progress-container">
+              <div id="resume-progress-bar" class="progress-bar" style="width: 0%"></div>
+            </div>
+            <div id="resume-progress-text" class="progress-text">准备上传...</div>
+          </div>
+        </div>
+        
+        <!-- 手动输入简历 -->
+        <div style="margin-top: 15px;">
+          <p style="font-size: 14px; margin: 5px 0;">或直接输入简历文本</p>
+          <textarea id="resume-text-input" rows="5" placeholder="在此输入您的简历文本内容..."></textarea>
+          <button id="submit-text-btn" class="btn btn-secondary" style="margin-top: 10px;">提交文本</button>
+        </div>
+      </div>
+      
+      <!-- 右侧列 - 岗位JD -->
+      <div class="column">
+        <h2 class="section-title">岗位JD</h2>
+        
+        <!-- JD状态 -->
+        <div class="status-indicator">
+          <div id="jd-status-dot" class="status-dot pending"></div>
+          <div id="jd-status">未获取岗位JD</div>
+        </div>
+        
+        <!-- 刷新JD按钮 -->
+        <button id="refresh-jd-btn" class="btn">刷新岗位JD</button>
+        
+        <!-- JD内容 -->
+        <div id="jd-content" class="content-box" style="height: 200px;">未获取岗位JD</div>
+        
+        <!-- 非Boss直聘页面警告 -->
+        <div id="not-boss-warning" class="warning-box hidden">
+          当前不是Boss直聘岗位页面，请打开Boss直聘岗位页面后使用
+        </div>
+        
+        <!-- 岗位页面检测成功提示 -->
+        <div id="job-page-detected" class="hidden" style="color: #4caf50; font-size: 14px; margin-top: 10px;">
+          ✓ 已检测到Boss直聘岗位页面
+        </div>
+      </div>
+    </div>
+    
+    <!-- 底部工具栏 -->
+    <div class="footer-toolbar">
+      <button id="settings-btn" class="btn btn-secondary">设置</button>
+      <div>
+        <span style="font-size: 12px; color: #757575;">v1.0.0</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 设置模态框 -->
+  <div id="settings-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title">设置</h3>
+        <button class="close-btn">&times;</button>
+      </div>
+      
+      <form id="settings-form">
+        <div class="form-group">
+          <label for="api-key">OpenAI API密钥:</label>
+          <input type="password" id="api-key" placeholder="sk-...">
+        </div>
+        
+        <div class="form-group">
+          <label for="api-endpoint">API基础URL:</label>
+          <input type="text" id="api-endpoint" placeholder="https://api.bailili.top">
+        </div>
+        
+        <div class="form-group">
+          <label for="model-name">模型名称:</label>
+          <input type="text" id="model-name" placeholder="o3-mini">
+          <div id="current-model" style="font-size: 12px; color: #757575; margin-top: 5px;">当前模型: o3-mini</div>
+        </div>
+        
+        <div id="api-test-result" style="margin: 10px 0; font-size: 14px;"></div>
+        
+        <div style="display: flex; justify-content: space-between; margin-top: 20px;">
+          <button type="button" id="test-api-btn" class="btn btn-secondary">测试API连接</button>
+          <button type="submit" class="btn">保存设置</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
