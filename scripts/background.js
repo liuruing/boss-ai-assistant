@@ -189,7 +189,8 @@ async function callAzureOpenAI(prompt, settings) {
 chrome.runtime.onInstalled.addListener(details => {
   if (details.reason === 'install') {
     // 首次安装时的操作
-    console.log('Boss直聘AI助手已安装');
+    const version = chrome.runtime.getManifest().version;
+    console.log(`Boss直聘AI助手 v${version} 已安装`);
     
     // 设置默认配置
     chrome.storage.local.set({
@@ -204,6 +205,7 @@ chrome.runtime.onInstalled.addListener(details => {
     });
   } else if (details.reason === 'update') {
     // 更新时的操作
-    console.log('Boss直聘AI助手已更新');
+    const version = chrome.runtime.getManifest().version;
+    console.log(`Boss直聘AI助手已更新到 v${version}`);
   }
 });

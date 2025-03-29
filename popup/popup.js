@@ -1,11 +1,14 @@
+import { 
+  DEFAULT_MODEL,
+  DEFAULT_API_KEY,
+  DEFAULT_API_ENDPOINT,
+  DEFAULT_STYLE_PROMPTS,
+  getVersion
+} from '../lib/env.js';
+
 // 全局变量
 let resumeData = null;
 let jdData = null;
-
-// 在文件顶部添加常量
-const DEFAULT_MODEL = 'o3-mini';
-const DEFAULT_API_KEY = 'sk-7rg66CMVkix5YRqvUlst5FHHHa9YHkzbyFKxroSwLxJ3URw3';
-const DEFAULT_API_ENDPOINT = 'https://api.bailili.top';
 
 // 在popup.js顶部添加调试日志函数
 function logDebug(message, data) {
@@ -34,115 +37,23 @@ function sendMessageToTab(tabId, message) {
   });
 }
 
-// DOM加载完成后执行
-document.addEventListener('DOMContentLoaded', () => {
-  // 立即初始化UI
-  initUI();
+// 这里只保留一个初始化UI的函数，合并所有功能
+function initUI() {
+  console.log('初始化UI...');
   
-  // 延迟执行可能需要与content script通信的操作
-  setTimeout(() => {
-    loadStoredData();
-    checkCurrentPage();
-  }, 500);
-  
-  // PDF和TXT解析功能
-  const pdfUploadBtn = document.getElementById('parsePdfBtn');
-  const pdfUploadInput = document.getElementById('pdfUpload');
-  const resultDiv = document.getElementById('pdfParseResult');
-  
-  if (pdfUploadBtn) {
-    pdfUploadBtn.addEventListener('click', async () => {
-      if (!pdfUploadInput.files.length) {
-        resultDiv.textContent = '请先选择文件';
-        return;
-      }
-      
-      const file = pdfUploadInput.files[0];
-      const fileType = file.type;
-      
-      if (fileType !== 'application/pdf' && fileType !== 'text/plain') {
-        resultDiv.textContent = '仅支持PDF或TXT格式文件';
-        return;
-      }
-      
-      resultDiv.textContent = '正在解析中，请稍候...';
-      
-      // 如果是TXT文件，可以直接在popup中处理
-      if (fileType === 'text/plain') {
-        try {
-          const reader = new FileReader();
-          reader.onload = function(e) {
-            const text = e.target.result;
-            resultDiv.textContent = '解析成功！\n' + text.substring(0, 200) + '...';
-            // 存储解析结果供后续使用
-            chrome.storage.local.set({
-              'parsedResume': text
-            });
-          };
-          reader.onerror = function() {
-            resultDiv.textContent = '读取文件失败';
-          };
-          reader.readAsText(file);
-          return;
-        } catch (error) {
-          resultDiv.textContent = '解析过程出错: ' + error.message;
-          return;
-        }
-      }
-      
-      // PDF文件需要发送到content script处理
-      try {
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: 'parsePDF',
-            file: file
-          }, function(response) {
-            if (response && response.success) {
-              resultDiv.textContent = '解析成功！\n' + response.text.substring(0, 200) + '...';
-              // 存储解析结果供后续使用
-              chrome.storage.local.set({
-                'parsedResume': response.text
-              });
-            } else {
-              resultDiv.textContent = '解析失败: ' + (response?.error || '未知错误');
-            }
-          });
-        });
-      } catch (error) {
-        resultDiv.textContent = '解析过程出错: ' + error.message;
-      }
-    });
+  // 初始化版本号显示
+  const version = getVersion();
+  const versionDisplay = document.getElementById('version-display');
+  if (versionDisplay) {
+    versionDisplay.textContent = `v${version}`;
   }
   
-  // 监听来自content script的消息
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    console.log('Popup received message:', message);
-    
-    if (message.action === 'jdUpdated') {
-      // 更新JD
-      updateJobDescription(message.jdData);
-      // 立即发送响应
-      sendResponse({success: true});
-      return true; // 表示会异步发送响应
-    } else if (message.action === 'autoGenerateGreeting') {
-      // 自动生成打招呼语
-      if (resumeData && jdData) {
-        generateGreeting();
-        sendResponse({success: true});
-      } else {
-        sendResponse({success: false, reason: '缺少简历或JD数据'});
-      }
-      return true; // 表示会异步发送响应
-    }
-    
-    // 对于未处理的消息，也发送一个响应
-    sendResponse({success: false, reason: '未知的消息类型'});
-    return true;
-  });
-});
-
-// 初始化UI
-function initUI() {
+  // 初始化关于页面的版本号
+  const aboutVersion = document.getElementById('about-version');
+  if (aboutVersion) {
+    aboutVersion.textContent = version;
+  }
+  
   // 上传简历按钮
   document.getElementById('upload-btn').addEventListener('click', () => {
     document.getElementById('resume-upload').click();
@@ -155,7 +66,10 @@ function initUI() {
   document.getElementById('refresh-jd-btn').addEventListener('click', refreshJobDescription);
   
   // 生成打招呼语按钮
-  document.getElementById('generate-btn').addEventListener('click', generateGreeting);
+  const generateBtn = document.getElementById('generate-btn');
+  generateBtn.addEventListener('click', generateGreeting);
+  // 根据是否有简历和JD数据来设置按钮状态
+  generateBtn.disabled = !(resumeData && jdData);
   
   // 发送按钮
   document.getElementById('send-btn').addEventListener('click', sendGreeting);
@@ -172,10 +86,10 @@ function initUI() {
   // 添加文本提交按钮事件监听
   document.getElementById('submit-text-btn').addEventListener('click', handleResumeTextSubmit);
   
-  // 在initUI函数中添加
+  // API测试按钮
   document.getElementById('test-api-btn').addEventListener('click', testApiConnection);
   
-  // 在initUI函数中添加
+  // 模型名称输入框监听
   document.getElementById('model-name').addEventListener('input', function(e) {
     const newModel = e.target.value.trim();
     if (newModel) {
@@ -188,7 +102,139 @@ function initUI() {
       });
     }
   });
+  
+  // 初始化风格提示词
+  initializeStylePrompts();
+  
+  // 设置选项卡切换
+  const tabButtons = document.querySelectorAll('.settings-tab-btn');
+  tabButtons.forEach(button => {
+    button.addEventListener('click', function() {
+      console.log('选项卡切换:', this.getAttribute('data-tab'));
+      // 移除所有活动状态
+      tabButtons.forEach(btn => btn.classList.remove('active'));
+      
+      // 隐藏所有内容
+      document.querySelectorAll('.settings-tab-content').forEach(content => {
+        content.style.display = 'none';
+      });
+      
+      // 激活当前选项卡
+      this.classList.add('active');
+      const tabId = this.getAttribute('data-tab');
+      
+      // 显示对应内容
+      document.getElementById(`${tabId}-tab`).style.display = 'block';
+      
+      // 加载风格设置
+      if (tabId === 'styles') {
+        loadStylePrompts();
+      }
+    });
+  });
+  
+  // 保存风格按钮
+  document.getElementById('save-styles-btn').addEventListener('click', saveStylePrompts);
+  
+  // 添加恢复默认按钮事件监听
+  document.getElementById('reset-styles-btn')?.addEventListener('click', resetStylePrompts);
+  
+  // 设置风格圆点点击事件
+  document.querySelectorAll('.style-dot').forEach(dot => {
+    dot.addEventListener('click', function() {
+      // 移除所有活动状态
+      document.querySelectorAll('.style-dot').forEach(d => d.classList.remove('active'));
+      // 添加当前活动状态
+      this.classList.add('active');
+      
+      const selectedIndex = parseInt(this.dataset.index);
+      // 更新当前编辑的风格索引
+      document.getElementById('current-style-name').dataset.index = selectedIndex;
+      // 加载并显示选中的风格
+      loadAndDisplayStylePrompts();
+    });
+  });
+  
+  // 添加恢复默认设置按钮事件监听
+  document.getElementById('factory-reset-btn')?.addEventListener('click', factoryReset);
+  
+  // 监听消息内容变化
+  const messageContent = document.getElementById('message-content');
+  const sendBtn = document.getElementById('send-btn');
+  
+  messageContent.addEventListener('input', function() {
+    const text = this.value.trim();
+    // 如果文本少于5个字,禁用发送按钮
+    sendBtn.disabled = text.length < 5;
+    
+    // 更新按钮样式
+    if (text.length < 5) {
+      sendBtn.title = '打招呼语至少需要5个字';
+      sendBtn.style.opacity = '0.5';
+    } else {
+      sendBtn.title = '发送打招呼语';
+      sendBtn.style.opacity = '1';
+    }
+    
+    // 保存当前编辑的内容
+    chrome.storage.local.set({
+      messageContent: text,
+      currentJobGreeting: text
+    });
+  });
+  
+  // 加载已保存的消息内容
+  chrome.storage.local.get(['messageContent'], (result) => {
+    if (result.messageContent) {
+      messageContent.value = result.messageContent;
+      // 触发input事件以更新按钮状态
+      messageContent.dispatchEvent(new Event('input'));
+    }
+  });
+  
+  // 监听来自content script的消息更新
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'updateMessageContent' && request.content) {
+      messageContent.value = request.content;
+      // 触发input事件以更新按钮状态
+      messageContent.dispatchEvent(new Event('input'));
+    }
+  });
+  
+  // 在initUI函数中添加风格选择器的事件监听
+  const styleSelector = document.getElementById('message-style');
+  if (styleSelector) {
+    // 加载保存的风格选择
+    chrome.storage.local.get(['selectedStyle'], (result) => {
+      if (result.selectedStyle) {
+        styleSelector.value = result.selectedStyle;
+      }
+    });
+
+    // 监听风格选择变化
+    styleSelector.addEventListener('change', function() {
+      const selectedStyle = this.value;
+      // 保存选择的风格
+      chrome.storage.local.set({ selectedStyle: selectedStyle }, () => {
+        console.log('已保存选中的风格:', selectedStyle);
+      });
+    });
+  }
+  
+  console.log('UI初始化完成');
 }
+
+// 确保在DOM完全加载后初始化UI
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM已加载，正在初始化...');
+  initUI();
+  
+  // 延迟执行可能需要与content script通信的操作
+  setTimeout(() => {
+    loadStoredData();
+    checkCurrentPage();
+  }, 500);
+});
 
 // 加载存储的数据
 function loadStoredData() {
@@ -206,6 +252,12 @@ function loadStoredData() {
       jdData = result.jdData;
       updateJdStatus(true);
       document.getElementById('jd-content').textContent = result.jdData;
+    }
+    
+    // 更新生成按钮状态
+    const generateBtn = document.getElementById('generate-btn');
+    if (generateBtn) {
+      generateBtn.disabled = !(resumeData && jdData);
     }
     
     // 设置默认模型（仅当没有保存的模型时）
@@ -312,9 +364,11 @@ function handleResumeUpload(event) {
             updateResumeProgress(100, '简历处理完成!');
             updateResumeStatus(true, text);
             
-            // 启用按钮
-            document.getElementById('generate-btn').disabled = !jdData;
-            document.getElementById('send-btn').disabled = !jdData;
+            // 更新生成按钮状态
+            const generateBtn = document.getElementById('generate-btn');
+            if (generateBtn) {
+              generateBtn.disabled = !(jdData && resumeData);
+            }
             
             // 3秒后隐藏进度条
             setTimeout(() => {
@@ -494,133 +548,152 @@ function generateGreeting() {
   // 从简历中提取关键信息
   const candidateName = extractNameFromResume(resumeData.resumeText || '');
   
-  // 构建提示词，包含简历的姓名信息
-  let prompt = `我是${candidateName || '求职者'}，我想应聘以下岗位：\n\n`;
-  prompt += `岗位描述：${jdData}\n\n`;
-  prompt += `我的简历：${resumeData.resumeText ? resumeData.resumeText.substring(0, 1500) : '未提供简历内容'}\n\n`;
-  prompt += `请根据我的简历和岗位要求，帮我生成一段简短的打招呼语，表达我对该岗位的兴趣和自己的优势匹配点。`;
-  prompt += `风格要求: ${getStyleDescription(messageStyle)}`;
+  // 获取选择的风格
+  const styleId = document.getElementById('message-style').value;
   
-  console.log('生成打招呼语，提示词长度:', prompt.length);
-  updateMessageProgress(20, '正在连接API...');
-  
-  // 获取API配置
-  chrome.storage.local.get(['apiKey', 'apiEndpoint'], (result) => {
-    const apiKey = result.apiKey || DEFAULT_API_KEY;
-    const apiEndpoint = result.apiEndpoint || DEFAULT_API_ENDPOINT;
+  // 从存储中获取对应的提示词
+  chrome.storage.local.get(['stylePrompts'], async function(result) {
+    const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+    const selectedStyle = stylePrompts.find(style => style.id === styleId) || stylePrompts[0];
     
-    console.log('使用模型:', DEFAULT_MODEL, '，API端点:', apiEndpoint);
-    updateMessageProgress(30, '正在发送请求...');
+    // 构建提示词
+    const prompt = `
+      职位描述: ${jdData}
+      
+      我的简历: ${resumeData.resumeText}
+      
+      风格要求: ${selectedStyle.prompt}
+      
+      请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
+    `;
     
-    // 添加超时处理
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('请求超时，请检查网络连接')), 30000)
-    );
+    console.log('生成打招呼语，提示词长度:', prompt.length);
+    updateMessageProgress(20, '正在连接API...');
     
-    // 调用API - 使用统一的模型变量
-    const fetchPromise = fetch(`${apiEndpoint}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: DEFAULT_MODEL,
-        messages: [
-          {
-            role: "system",
-            content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 800
-      })
-    });
-    
-    // 使用Promise.race来处理超时
-    Promise.race([fetchPromise, timeoutPromise])
-      .then(response => {
-        if (!response.ok) {
-          updateMessageProgress(50, `API响应错误: ${response.status}`, true);
-          console.error('API响应错误:', response.status, response.statusText);
-          throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
-        }
-        updateMessageProgress(60, '正在处理响应...');
-        return response.json();
-      })
-      .then(data => {
-        console.log('API响应成功:', data);
-        updateMessageProgress(80, '生成完成，正在处理结果...');
-        
-        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-          throw new Error('API返回数据格式错误');
-        }
-        
-        const generatedText = data.choices[0].message.content;
-        messageContent.value = generatedText;
-        updateMessageProgress(100, '生成完成!');
-        
-        // 保存生成的内容到存储 - 同时保存为当前岗位的打招呼语
-        chrome.storage.local.get(['currentJobId', 'jobGreetings'], (result) => {
-          // 保存通用打招呼语
-          chrome.storage.local.set({messageContent: generatedText}, () => {
-            console.log('已保存打招呼语到存储');
-            
-            // 如果有当前岗位ID，也保存为该岗位的专用打招呼语
-            if (result.currentJobId) {
-              const jobGreetings = result.jobGreetings || {};
-              jobGreetings[result.currentJobId] = generatedText;
-              
-              chrome.storage.local.set({jobGreetings: jobGreetings}, () => {
-                console.log('已保存为当前岗位的打招呼语:', result.currentJobId);
-              });
+    // 获取API配置
+    chrome.storage.local.get(['apiKey', 'apiEndpoint'], (result) => {
+      const apiKey = result.apiKey || DEFAULT_API_KEY;
+      const apiEndpoint = result.apiEndpoint || DEFAULT_API_ENDPOINT;
+      
+      console.log('使用模型:', DEFAULT_MODEL, '，API端点:', apiEndpoint);
+      updateMessageProgress(30, '正在发送请求...');
+      
+      // 添加超时处理
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('请求超时，请检查网络连接')), 30000)
+      );
+      
+      // 调用API - 使用统一的模型变量
+      const fetchPromise = fetch(`${apiEndpoint}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: DEFAULT_MODEL,
+          messages: [
+            {
+              role: "system",
+              content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
+            },
+            {
+              role: "user",
+              content: prompt
             }
-            
-            // 通知内容脚本更新按钮状态
-            chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-              if (tabs[0]) {
-                try {
-                  chrome.tabs.sendMessage(tabs[0].id, {
-                    action: 'updateQuickSendButton',
-                    isGenerated: true
-                  }, response => {
-                    // 处理可能的错误
-                    if (chrome.runtime.lastError) {
-                      console.warn('更新按钮消息发送失败:', chrome.runtime.lastError.message);
-                    }
-                  });
-                } catch (err) {
-                  console.error('发送消息时出错:', err);
-                }
+          ],
+          temperature: 0.7,
+          max_tokens: 800
+        })
+      });
+      
+      // 使用Promise.race来处理超时
+      Promise.race([fetchPromise, timeoutPromise])
+        .then(response => {
+          if (!response.ok) {
+            updateMessageProgress(50, `API响应错误: ${response.status}`, true);
+            console.error('API响应错误:', response.status, response.statusText);
+            throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
+          }
+          updateMessageProgress(60, '正在处理响应...');
+          return response.json();
+        })
+        .then(data => {
+          console.log('API响应成功:', data);
+          updateMessageProgress(80, '生成完成，正在处理结果...');
+          
+          if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            throw new Error('API返回数据格式错误');
+          }
+          
+          const generatedText = data.choices[0].message.content;
+          messageContent.value = generatedText;
+          messageContent.placeholder = '生成的打招呼语将显示在这里...';
+          updateMessageProgress(100, '生成完成!');
+          
+          // 保存生成的内容到存储 - 同时保存为当前岗位的打招呼语
+          chrome.storage.local.get(['currentJobId', 'jobGreetings'], (result) => {
+            // 保存通用打招呼语
+            chrome.storage.local.set({messageContent: generatedText}, () => {
+              console.log('已保存打招呼语到存储');
+              
+              // 如果有当前岗位ID，也保存为该岗位的专用打招呼语
+              if (result.currentJobId) {
+                const jobGreetings = result.jobGreetings || {};
+                jobGreetings[result.currentJobId] = generatedText;
+                
+                chrome.storage.local.set({jobGreetings: jobGreetings}, () => {
+                  console.log('已保存为当前岗位的打招呼语:', result.currentJobId);
+                });
               }
+              
+              // 通知内容脚本更新按钮状态
+              chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+                if (tabs[0]) {
+                  try {
+                    chrome.tabs.sendMessage(tabs[0].id, {
+                      action: 'updateQuickSendButton',
+                      isGenerated: true
+                    }, response => {
+                      // 处理可能的错误
+                      if (chrome.runtime.lastError) {
+                        console.warn('更新按钮消息发送失败:', chrome.runtime.lastError.message);
+                      }
+                    });
+                  } catch (err) {
+                    console.error('发送消息时出错:', err);
+                  }
+                }
+              });
             });
           });
+          
+          // 3秒后隐藏进度条
+          setTimeout(() => {
+            progressContainer.classList.add('hidden');
+          }, 3000);
+          
+          // 启用发送按钮
+          const sendBtn = document.getElementById('send-btn');
+          if (generatedText.length >= 5) {
+            sendBtn.disabled = false;
+            sendBtn.title = '发送打招呼语';
+            sendBtn.style.opacity = '1';
+          }
+        })
+        .catch(error => {
+          console.error('生成打招呼语时出错:', error);
+          updateMessageProgress(100, `生成失败: ${error.message}`, true);
+          
+          // 显示错误信息
+          messageContent.value = `生成失败: ${error.message}\n\n请检查API设置或网络连接。`;
+          
+          // 10秒后隐藏进度条
+          setTimeout(() => {
+            progressContainer.classList.add('hidden');
+          }, 10000);
         });
-        
-        // 3秒后隐藏进度条
-        setTimeout(() => {
-          progressContainer.classList.add('hidden');
-        }, 3000);
-        
-        // 启用发送按钮
-        document.getElementById('send-btn').disabled = false;
-      })
-      .catch(error => {
-        console.error('生成打招呼语时出错:', error);
-        updateMessageProgress(100, `生成失败: ${error.message}`, true);
-        
-        // 显示错误信息
-        messageContent.value = `生成失败: ${error.message}\n\n请检查API设置或网络连接。`;
-        
-        // 10秒后隐藏进度条
-        setTimeout(() => {
-          progressContainer.classList.add('hidden');
-        }, 10000);
-      });
+    });
   });
 }
 
@@ -653,9 +726,11 @@ function getStyleDescription(style) {
     case 'professional':
       return '专业正式，突出专业能力和经验';
     case 'enthusiastic':
-      return '热情积极，表达强烈的兴趣和热情';
+      return '热情积极，表达对岗位的强烈兴趣';
     case 'concise':
       return '简洁明了，直接表达核心优势和匹配点';
+    case 'friendly':
+      return '友好亲切，表达对岗位的兴趣和热情';
     default:
       return '专业正式，突出专业能力和经验';
   }
@@ -709,7 +784,12 @@ function updateResumeStatus(isLoaded, resumeText) {
   }
   
   if (statusText) {
-    statusText.textContent = isLoaded ? '已上传简历' : '未上传简历';
+    if (isLoaded && resumeText) {
+      const wordCount = resumeText.length;
+      statusText.textContent = `已上传简历 (${wordCount}字)`;
+    } else {
+      statusText.textContent = '未上传简历';
+    }
   }
   
   // 如果提供了简历文本，添加字数显示
@@ -736,9 +816,10 @@ function updateJdStatus(isLoaded) {
   const statusDot = document.getElementById('jd-status-dot');
   const statusText = document.getElementById('jd-status');
   
-  if (isLoaded) {
+  if (isLoaded && jdData) {
     statusDot.className = 'status-dot success';
-    statusText.textContent = '已获取岗位JD';
+    const wordCount = jdData.length;
+    statusText.textContent = `已获取岗位JD (${wordCount}字)`;
   } else {
     statusDot.className = 'status-dot pending';
     statusText.textContent = '未获取岗位JD';
@@ -786,36 +867,30 @@ function updateMessageProgress(percent, message, isError = false) {
 
 // 显示设置模态框
 function showSettings() {
-  // 显示加载状态
-  document.getElementById('current-model').textContent = '当前模型: 加载中...';
+  document.getElementById('settings-modal').classList.add('show');
   
-  // 获取当前默认模型名称
-  chrome.storage.local.get(['model', 'apiKey', 'apiEndpoint'], (result) => {
-    const defaultModel = result.model || "o3-mini";
-    
-    // 设置模型名称的placeholder和value
-    const modelInput = document.getElementById('model-name');
-    modelInput.placeholder = defaultModel;
-    
-    // 如果输入框为空，则设置当前值为默认模型
-    if (!modelInput.value) {
-      modelInput.value = defaultModel;
-    }
-    
-    // 更新当前模型显示
-    document.getElementById('current-model').textContent = `当前模型: ${defaultModel}`;
-    
-    // 确保API密钥和端点也正确显示
-    if (result.apiKey && !document.getElementById('api-key').value) {
-      document.getElementById('api-key').value = result.apiKey;
-    }
-    
-    if (result.apiEndpoint && !document.getElementById('api-endpoint').value) {
-      document.getElementById('api-endpoint').value = result.apiEndpoint;
-    }
+  // 确保默认显示API设置选项卡
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  document.querySelectorAll('.settings-tab-content').forEach(content => {
+    content.style.display = 'none';
   });
   
-  document.getElementById('settings-modal').classList.add('show');
+  // 激活API设置选项卡
+  document.querySelector('.settings-tab-btn[data-tab="api"]').classList.add('active');
+  document.getElementById('api-tab').style.display = 'block';
+  
+  // 加载API设置
+  loadApiSettings();
+  
+  // 直接加载风格设置数据，即使当前不显示风格设置选项卡
+  // 这样可以确保数据已准备好，用户切换到风格设置选项卡时能立即看到
+  setTimeout(() => {
+    loadStylePrompts();
+  }, 100);
+  
+  console.log('设置对话框已显示');
 }
 
 // 隐藏设置模态框
@@ -917,9 +992,11 @@ function handleResumeTextSubmit() {
       updateResumeProgress(100, '简历文本处理完成!');
       updateResumeStatus(true, resumeText);
       
-      // 启用按钮
-      document.getElementById('generate-btn').disabled = !jdData;
-      document.getElementById('send-btn').disabled = !jdData;
+      // 更新生成按钮状态
+      const generateBtn = document.getElementById('generate-btn');
+      if (generateBtn) {
+        generateBtn.disabled = !(jdData && resumeData);
+      }
       
       // 3秒后隐藏进度条
       setTimeout(() => {
@@ -933,7 +1010,15 @@ function handleResumeTextSubmit() {
 }
 
 // 更新JD信息
-function updateJobDescription(newJdData) {
+async function updateJobDescription(newJdData) {
+  const oldHash = jdData ? getJobHash(jdData) : null;
+  const newHash = getJobHash(newJdData);
+  
+  // 如果hash变化了,清除缓存的打招呼语
+  if (oldHash !== newHash) {
+    chrome.storage.local.remove(['cachedGreeting', 'cachedJobHash']);
+  }
+  
   jdData = newJdData;
   
   // 计算字数
@@ -943,32 +1028,130 @@ function updateJobDescription(newJdData) {
   const jdContent = document.getElementById('jd-content');
   if (jdContent) {
     jdContent.textContent = newJdData;
-    // 添加字数显示
-    const jdWordCount = document.createElement('div');
-    jdWordCount.className = 'word-count';
-    jdWordCount.textContent = `字数: ${wordCount}`;
-    jdWordCount.style.color = '#757575';
-    jdWordCount.style.fontSize = '12px';
-    jdWordCount.style.marginTop = '5px';
-    jdWordCount.style.textAlign = 'right';
-    jdContent.parentNode.insertBefore(jdWordCount, jdContent.nextSibling);
   }
   
   // 安全地更新状态指示器
   const jdStatus = document.getElementById('jd-status');
   const jdStatusDot = document.getElementById('jd-status-dot');
   
-  if (jdStatus) jdStatus.textContent = '已获取岗位JD';
-  if (jdStatusDot) jdStatusDot.className = 'status-dot success';
+  if (jdStatus) {
+    jdStatus.textContent = `已获取岗位JD (${wordCount}字)`;
+  }
+  if (jdStatusDot) {
+    jdStatusDot.className = 'status-dot success';
+  }
   
   updateJdStatus(true);
   
-  // 如果有简历数据，启用生成按钮
+  // 更新生成按钮状态
   const generateBtn = document.getElementById('generate-btn');
-  const sendBtn = document.getElementById('send-btn');
+  if (generateBtn) {
+    generateBtn.disabled = !(resumeData && newJdData);
+  }
   
-  if (generateBtn) generateBtn.disabled = !resumeData;
-  if (sendBtn) sendBtn.disabled = !resumeData;
+  // 如果有简历数据,自动生成打招呼语
+  if (resumeData) {
+    try {
+      // 检查是否已有缓存的打招呼语
+      chrome.storage.local.get(['cachedGreeting', 'cachedJobHash'], async (result) => {
+        if (result.cachedGreeting && result.cachedJobHash === newHash) {
+          console.log('使用缓存的打招呼语');
+          // 使用缓存的打招呼语更新UI
+          const messageContent = document.getElementById('message-content');
+          if (messageContent) {
+            messageContent.value = result.cachedGreeting;
+            messageContent.placeholder = '生成的打招呼语将显示在这里...';
+          }
+          return;
+        }
+        
+        console.log('正在自动生成打招呼语...');
+        
+        // 获取第一个风格的提示词
+        const stylePrompts = await new Promise(resolve => {
+          chrome.storage.local.get(['stylePrompts'], (result) => {
+            resolve(result.stylePrompts || DEFAULT_STYLE_PROMPTS);
+          });
+        });
+        
+        const firstStyle = stylePrompts[0];
+        
+        // 构建提示词
+        const prompt = `
+          职位描述: ${newJdData}
+          
+          我的简历: ${resumeData.resumeText}
+          
+          风格要求: ${firstStyle.prompt}
+          
+          请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
+        `;
+        
+        // 获取API配置
+        const settings = await new Promise(resolve => {
+          chrome.storage.local.get(['apiKey', 'apiEndpoint'], (result) => {
+            resolve({
+              apiKey: result.apiKey || DEFAULT_API_KEY,
+              apiEndpoint: result.apiEndpoint || DEFAULT_API_ENDPOINT
+            });
+          });
+        });
+        
+        // 调用API生成打招呼语
+        const response = await fetch(`${settings.apiEndpoint}/v1/chat/completions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${settings.apiKey}`
+          },
+          body: JSON.stringify({
+            model: DEFAULT_MODEL,
+            messages: [
+              {
+                role: "system",
+                content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
+              },
+              {
+                role: "user",
+                content: prompt
+              }
+            ],
+            temperature: 0.7,
+            max_tokens: 800
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error(`API请求失败: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        const generatedText = data.choices[0].message.content.trim();
+        
+        // 缓存生成的打招呼语和hash
+        chrome.storage.local.set({
+          cachedGreeting: generatedText,
+          cachedJobHash: newHash
+        });
+        
+        // 更新UI
+        const messageContent = document.getElementById('message-content');
+        if (messageContent) {
+          messageContent.value = generatedText;
+          messageContent.placeholder = '生成的打招呼语将显示在这里...';
+        }
+        
+        console.log('自动生成打招呼语完成');
+      });
+    } catch (error) {
+      console.error('自动生成打招呼语失败:', error);
+    }
+  }
+}
+
+// 添加一个工具函数来生成岗位hash
+function getJobHash(jdText) {
+  return btoa(jdText).slice(0, 32);
 }
 
 // 测试API连接
@@ -1053,4 +1236,271 @@ function safeSetClassName(id, className) {
   }
   console.warn(`无法找到元素: ${id}`);
   return false;
+}
+
+// 初始化风格提示词
+function initializeStylePrompts() {
+  console.log('初始化风格提示词...');
+  chrome.storage.local.get(['stylePrompts'], function(result) {
+    if (!result.stylePrompts) {
+      // 首次使用,从env.js获取默认值并保存
+      saveStylePromptsToStorage(DEFAULT_STYLE_PROMPTS);
+    }
+    // 无论是否首次使用,都从storage加载并更新UI
+    loadAndDisplayStylePrompts();
+  });
+}
+
+// 保存风格提示词到storage
+function saveStylePromptsToStorage(stylePrompts) {
+  chrome.storage.local.set({ 'stylePrompts': stylePrompts }, function() {
+    console.log('风格提示词已保存到storage');
+    // 保存后更新UI
+    loadAndDisplayStylePrompts();
+    // 更新下拉菜单
+    updateMessageStyleSelector();
+  });
+}
+
+// 设置风格名称双击编辑功能
+function setupStyleNameEditing() {
+  const styleNameElement = document.getElementById('current-style-name');
+  if (!styleNameElement) {
+    console.error('找不到风格名称元素');
+    return;
+  }
+  
+  // 双击开始编辑
+  styleNameElement.addEventListener('dblclick', function() {
+    const currentText = this.textContent;
+    this.classList.add('editing');
+    
+    // 创建输入框
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentText;
+    input.style.cssText = `
+      width: 100%;
+      padding: 7px;
+      border: 1px solid #1e88e5;
+      border-radius: 4px;
+      font-size: 14px;
+      box-sizing: border-box;
+    `;
+    
+    // 替换文本为输入框
+    this.textContent = '';
+    this.appendChild(input);
+    input.focus();
+    
+    // 处理输入框失焦或回车事件
+    function finishEditing() {
+      const newName = input.value.trim();
+      if (newName) {
+        styleNameElement.textContent = newName;
+      } else {
+        styleNameElement.textContent = currentText;
+      }
+      styleNameElement.classList.remove('editing');
+    }
+    
+    input.addEventListener('blur', finishEditing);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        finishEditing();
+        e.preventDefault();
+      } else if (e.key === 'Escape') {
+        styleNameElement.textContent = currentText;
+        styleNameElement.classList.remove('editing');
+        e.preventDefault();
+      }
+    });
+  });
+}
+
+// 修改 loadAndDisplayStylePrompts 函数，在更新显示后设置编辑功能
+function loadAndDisplayStylePrompts() {
+  chrome.storage.local.get(['stylePrompts'], function(result) {
+    const stylePrompts = result.stylePrompts;
+    if (!stylePrompts) {
+      console.error('未找到风格提示词配置');
+      return;
+    }
+
+    // 更新当前显示的风格
+    const currentIndex = parseInt(document.getElementById('current-style-name')?.dataset.index || '0');
+    const currentStyle = stylePrompts[currentIndex];
+    
+    if (currentStyle) {
+      document.getElementById('current-style-name').textContent = currentStyle.name;
+      document.getElementById('current-style-prompt').value = currentStyle.prompt;
+      
+      // 设置双击编辑功能
+      setupStyleNameEditing();
+    }
+  });
+}
+
+// 恢复默认风格提示词
+function resetStylePrompts() {
+  if (confirm('确定要恢复默认风格设置吗？这将覆盖您的自定义设置。')) {
+    // 从env.js获取默认值并保存
+    saveStylePromptsToStorage(DEFAULT_STYLE_PROMPTS);
+  }
+}
+
+// 修改保存风格按钮的处理函数
+function saveStylePrompts() {
+  console.log('保存风格提示词...');
+  chrome.storage.local.get(['stylePrompts'], function(result) {
+    let stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+    
+    // 获取当前编辑的风格索引
+    const currentIndex = parseInt(document.getElementById('current-style-name').dataset.index || 0);
+    const newName = document.getElementById('current-style-name').textContent;
+    const newPrompt = document.getElementById('current-style-prompt').value.trim();
+    
+    // 确保索引有效
+    if (currentIndex >= 0 && currentIndex < stylePrompts.length) {
+      // 更新风格信息
+      stylePrompts[currentIndex] = {
+        ...stylePrompts[currentIndex],
+        name: newName || `风格${currentIndex + 1}`,
+        prompt: newPrompt || DEFAULT_STYLE_PROMPTS[currentIndex].prompt
+      };
+      
+      // 保存到storage
+      saveStylePromptsToStorage(stylePrompts);
+      alert('风格设置已保存！');
+    } else {
+      console.error('无效的风格索引:', currentIndex);
+      alert('保存失败：无效的风格索引');
+    }
+  });
+}
+
+// 更新主界面的风格选择下拉菜单
+function updateMessageStyleSelector() {
+  chrome.storage.local.get(['stylePrompts'], function(result) {
+    const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+    const styleSelector = document.getElementById('message-style');
+    
+    if (!styleSelector) {
+      console.warn('找不到主界面风格选择器');
+      return;
+    }
+    
+    // 保存当前选中的值
+    const currentValue = styleSelector.value;
+    
+    // 清空下拉菜单
+    styleSelector.innerHTML = '';
+    
+    // 添加所有风格选项
+    stylePrompts.forEach(style => {
+      const option = document.createElement('option');
+      option.value = style.id;
+      option.textContent = style.name;
+      styleSelector.appendChild(option);
+    });
+    
+    // 尝试恢复之前选中的值
+    const hasCurrentValue = stylePrompts.some(style => style.id === currentValue);
+    if (hasCurrentValue) {
+      styleSelector.value = currentValue;
+    }
+  });
+}
+
+// 添加加载API设置函数
+function loadApiSettings() {
+  chrome.storage.local.get(['apiKey', 'apiEndpoint', 'model'], (result) => {
+    document.getElementById('api-key').value = result.apiKey || DEFAULT_API_KEY;
+    document.getElementById('api-endpoint').value = result.apiEndpoint || DEFAULT_API_ENDPOINT;
+    
+    const currentModel = result.model || DEFAULT_MODEL;
+    document.getElementById('model-name').value = currentModel;
+    document.getElementById('current-model').textContent = `当前模型: ${currentModel}`;
+  });
+}
+
+// 添加恢复默认设置函数
+function factoryReset() {
+  const confirmMessage = 
+    '确定要恢复默认设置吗？\n\n' +
+    '这将重置：\n' +
+    '- API设置\n' +
+    '- 风格设置\n' +
+    '- 已保存的简历数据\n' +
+    '- 已保存的JD数据\n' +
+    '- 其他所有设置\n\n' +
+    '此操作不可撤销！';
+    
+  if (confirm(confirmMessage)) {
+    // 显示加载状态
+    const resetBtn = document.getElementById('factory-reset-btn');
+    const originalText = resetBtn.textContent;
+    resetBtn.textContent = '正在重置...';
+    resetBtn.disabled = true;
+    
+    // 清除所有存储的数据
+    chrome.storage.local.clear(() => {
+      if (chrome.runtime.lastError) {
+        console.error('清除数据失败:', chrome.runtime.lastError);
+        alert('恢复默认设置失败: ' + chrome.runtime.lastError.message);
+        resetBtn.textContent = originalText;
+        resetBtn.disabled = false;
+        return;
+      }
+      
+      // 重置全局变量
+      resumeData = null;
+      jdData = null;
+      
+      // 重新初始化默认设置
+      const defaultSettings = {
+        apiKey: DEFAULT_API_KEY,
+        apiEndpoint: DEFAULT_API_ENDPOINT,
+        model: DEFAULT_MODEL,
+        stylePrompts: DEFAULT_STYLE_PROMPTS
+      };
+      
+      // 保存默认设置
+      chrome.storage.local.set(defaultSettings, () => {
+        if (chrome.runtime.lastError) {
+          console.error('保存默认设置失败:', chrome.runtime.lastError);
+          alert('保存默认设置失败: ' + chrome.runtime.lastError.message);
+          resetBtn.textContent = originalText;
+          resetBtn.disabled = false;
+          return;
+        }
+        
+        // 更新UI
+        updateResumeStatus(false);
+        updateJdStatus(false);
+        document.getElementById('resume-content').textContent = '未上传简历';
+        document.getElementById('jd-content').textContent = '未获取岗位JD';
+        document.getElementById('generate-btn').disabled = true;
+        document.getElementById('send-btn').disabled = true;
+        
+        // 重新加载设置
+        loadApiSettings();
+        loadStylePrompts();
+        updateMessageStyleSelector();
+        
+        // 恢复按钮状态
+        resetBtn.textContent = originalText;
+        resetBtn.disabled = false;
+        
+        // 显示成功消息
+        alert('已成功恢复默认设置！');
+        
+        // 关闭设置对话框
+        hideSettings();
+        
+        // 刷新整个插件
+        window.location.reload();
+      });
+    });
+  }
 }

@@ -12,28 +12,54 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   // 调试信息
   console.log('Content script received message:', request);
   
+  // 创建一个安全的响应包装器，确保即使在异步操作中也能正确响应
+  const safeResponse = (data) => {
+    try {
+      sendResponse(data);
+    } catch (error) {
+      console.warn('发送响应时出错:', error.message);
+      // 这里不需要重新抛出错误，我们只是记录它
+    }
+  };
+  
   if (request.action === 'getPageInfo') {
     // 获取页面信息
     const pageInfo = getPageInfo();
-    sendResponse(pageInfo);
-    return true;
+    safeResponse(pageInfo);
+    return true; // 表示会异步发送响应
   } else if (request.action === 'refreshJD') {
     // 刷新职位描述
-    const jdData = extractJobDescription();
-    sendResponse({
-      success: !!jdData,
-      jobDescription: jdData
-    });
-    return true;
+    try {
+      const jdData = extractJobDescription();
+      safeResponse({
+        success: !!jdData,
+        jobDescription: jdData
+      });
+    } catch (error) {
+      console.error('提取JD时出错:', error);
+      safeResponse({
+        success: false,
+        error: error.message
+      });
+    }
+    return true; // 表示会异步发送响应
   } else if (request.action === 'sendGreeting') {
     // 发送打招呼语
-    const result = sendGreetingToBoss(request.greeting);
-    sendResponse(result);
-    return true;
+    try {
+      const result = sendGreetingToBoss(request.greeting);
+      safeResponse(result);
+    } catch (error) {
+      console.error('发送打招呼语时出错:', error);
+      safeResponse({
+        success: false,
+        error: error.message
+      });
+    }
+    return true; // 表示会异步发送响应
   } else if (request.action === 'updateQuickSendButton') {
     // 更新一键发送按钮状态
     updateQuickSendButtonState(request.isGenerated);
-    sendResponse({success: true});
+    safeResponse({success: true});
     return true;
   } else if (request.action === 'toggleFloatingWindow') {
     // 切换浮动窗口
@@ -44,13 +70,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       
       if (window.floatingWindowManager) {
         window.floatingWindowManager.toggleWindow();
-        sendResponse({success: true});
+        safeResponse({success: true});
       } else {
         throw new Error('浮动窗口管理器未初始化');
       }
     } catch (error) {
       console.error('切换浮动窗口失败:', error);
-      sendResponse({success: false, error: error.message});
+      safeResponse({success: false, error: error.message});
     }
     return true;
   } else if (request.action === 'parseResume') {
@@ -62,10 +88,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log(`解析进度: ${progress}% - ${message}`);
     }, apiUrl)
     .then(extractedText => {
-      sendResponse({ success: true, data: extractedText });
+      safeResponse({ success: true, data: extractedText });
     })
     .catch(error => {
-      sendResponse({ success: false, error: error.message });
+      safeResponse({ success: false, error: error.message });
     });
 
     return true; // 表示将异步发送响应
@@ -73,7 +99,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try {
       // 检查是否有文件
       if (!request.file) {
-        sendResponse({success: false, error: '未提供文件'});
+        safeResponse({success: false, error: '未提供文件'});
         return true;
       }
       
@@ -88,7 +114,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           if (fileType === 'text/plain') {
             // TXT文件直接读取文本
             const text = e.target.result;
-            sendResponse({success: true, text: text});
+            safeResponse({success: true, text: text});
           } else if (fileType === 'application/pdf') {
             // 使用API处理PDF文件
             const formData = new FormData();
@@ -112,22 +138,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 ? result.map(item => item.text || '').join('\n')
                 : '';
                 
-              sendResponse({success: true, text: text});
+              safeResponse({success: true, text: text});
             } catch (apiError) {
               console.error('API请求失败:', apiError);
-              sendResponse({success: false, error: apiError.message});
+              safeResponse({success: false, error: apiError.message});
             }
           } else {
-            sendResponse({success: false, error: `不支持的文件类型: ${fileType}`});
+            safeResponse({success: false, error: `不支持的文件类型: ${fileType}`});
           }
         } catch (error) {
           console.error('处理文件内容失败:', error);
-          sendResponse({success: false, error: error.message});
+          safeResponse({success: false, error: error.message});
         }
       };
       
       reader.onerror = function() {
-        sendResponse({success: false, error: '读取文件失败'});
+        safeResponse({success: false, error: '读取文件失败'});
       };
       
       if (fileType === 'text/plain') {
@@ -137,11 +163,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     } catch (error) {
       console.error('处理文件失败:', error);
-      sendResponse({success: false, error: error.message});
+      safeResponse({success: false, error: error.message});
     }
     
     return true;
   }
+  
+  // 为所有其他消息类型提供默认响应
+  // 这确保了每个消息都会收到响应，防止端口关闭错误
+  safeResponse({success: false, error: '未知的消息类型'});
+  return true; // 表示会异步发送响应
 });
 
 // 页面加载完成后初始化
@@ -254,17 +285,17 @@ function initFloatingWindow() {
       width: 50px;
       height: 50px;
       background-color: #00b38a;
+      background-image: url(${chrome.runtime.getURL('assets/boss.png')});
+      background-size: cover;
+      background-position: center;
       border-radius: 50%;
-      color: white;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
       z-index: 9999;
-      font-size: 24px;
     `;
-    floatingWindow.innerHTML = '🤖';
     floatingWindow.title = 'Boss直聘AI助手';
     
     // 点击事件
@@ -453,54 +484,172 @@ function autoDetectJobDescription() {
     }, () => {
       console.log('职位JD已保存');
       
-      // 安全地发送消息，添加错误处理
-      try {
-        chrome.runtime.sendMessage({
-          action: 'jdUpdated',
-          jdData: jdData
-        }, response => {
-          // 处理可能的lastError
-          if (chrome.runtime.lastError) {
-            console.warn('发送JD更新消息失败:', chrome.runtime.lastError.message);
-            // 不要尝试访问response，因为它可能不存在
-            return;
+      // 获取简历数据、风格设置和当前选中的风格
+      chrome.storage.local.get(['resumeData', 'stylePrompts', 'selectedStyle'], (result) => {
+        if (result.resumeData) {
+          const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+          
+          // 获取当前选中的风格，如果没有选中则使用第一个风格
+          let selectedStyle = stylePrompts[0];
+          if (result.selectedStyle) {
+            selectedStyle = stylePrompts.find(style => style.id === result.selectedStyle) || stylePrompts[0];
           }
           
-          // 只有在没有错误时才处理响应
-          if (response) {
-            console.log('JD更新消息发送成功，收到响应:', response);
-          }
-        });
-      } catch (err) {
-        console.error('发送消息时出错:', err);
-      }
-      
-      // 检查是否有针对当前岗位的打招呼语
-      chrome.storage.local.get(['jobGreetings', 'resumeData'], (result) => {
-        const jobGreetings = result.jobGreetings || {};
-        
-        // 如果没有针对当前岗位的打招呼语，且有简历数据，则尝试预生成
-        if (!jobGreetings[currentJobId] && result.resumeData) {
-          console.log('正在为当前岗位预生成打招呼语');
+          console.log('使用风格:', selectedStyle.name);
           
-          // 后台生成，不阻塞用户操作
-          generateGreetingForJob(currentJobId, jdData, result.resumeData)
-            .then(() => {
-              // 更新一键沟通按钮状态
-              updateQuickSendButtonState(true);
+          // 构建提示词
+          const prompt = `
+            职位描述: ${jdData}
+            
+            我的简历: ${result.resumeData.resumeText}
+            
+            风格要求: ${selectedStyle.prompt}
+            
+            请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
+          `;
+          
+          // 获取API配置
+          chrome.storage.local.get(['apiKey', 'apiEndpoint'], (settings) => {
+            const apiKey = settings.apiKey || DEFAULT_API_KEY;
+            const apiEndpoint = settings.apiEndpoint || DEFAULT_API_ENDPOINT;
+            
+            // 调用API生成打招呼语
+            fetch(`${apiEndpoint}/v1/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify({
+                model: DEFAULT_MODEL,
+                messages: [
+                  {
+                    role: "system",
+                    content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
+                  },
+                  {
+                    role: "user",
+                    content: prompt
+                  }
+                ],
+                temperature: 0.7,
+                max_tokens: 800
+              })
+            })
+            .then(response => response.json())
+            .then(data => {
+              const generatedText = data.choices[0].message.content.trim();
+              
+              // 保存生成的打招呼语
+              chrome.storage.local.set({
+                messageContent: generatedText,
+                currentJobGreeting: generatedText
+              }, () => {
+                console.log('打招呼语已自动生成并保存');
+                
+                // 通知popup更新显示
+                chrome.runtime.sendMessage({
+                  action: 'updateMessageContent',
+                  content: generatedText
+                });
+                
+                // 更新一键沟通按钮状态
+                updateQuickSendButtonState(true);
+              });
             })
             .catch(error => {
-              console.error('预生成打招呼语失败:', error);
+              console.error('自动生成打招呼语失败:', error);
             });
-        } else if (jobGreetings[currentJobId]) {
-          // 已有针对当前岗位的打招呼语，直接更新按钮状态
-          updateQuickSendButtonState(true);
+          });
         }
       });
     });
   } catch (error) {
     console.error('自动检测岗位JD出错:', error);
   }
+}
+
+// 新增辅助函数，将后续逻辑提取出来
+function checkJobGreetings(currentJobId, jdData) {
+  // 检查是否有针对当前岗位的打招呼语
+  chrome.storage.local.get(['jobGreetings', 'resumeData'], (result) => {
+    const jobGreetings = result.jobGreetings || {};
+    
+    // 如果没有针对当前岗位的打招呼语，且有简历数据，则尝试预生成
+    if (!jobGreetings[currentJobId] && result.resumeData) {
+      console.log('正在为当前岗位预生成打招呼语');
+      
+      // 后台生成，不阻塞用户操作
+      generateGreetingForJob(currentJobId, jdData, result.resumeData)
+        .then(() => {
+          // 更新一键沟通按钮状态
+          updateQuickSendButtonState(true);
+        })
+        .catch(error => {
+          console.error('预生成打招呼语失败:', error);
+        });
+    } else if (jobGreetings[currentJobId]) {
+      // 已有针对当前岗位的打招呼语，直接更新按钮状态
+      updateQuickSendButtonState(true);
+    }
+  });
+}
+
+// 增强的消息发送函数，支持多次重试和超时
+function sendMessageWithRetry(tabId, message, maxRetries = 3, delay = 500, timeout = 5000) {
+  let retryCount = 0;
+  
+  return new Promise((resolve) => {
+    function attemptSend() {
+      try {
+        // 设置超时
+        const timeoutId = setTimeout(() => {
+          console.warn(`发送消息超时 (尝试 ${retryCount+1}/${maxRetries})`);
+          
+          if (retryCount < maxRetries) {
+            retryCount++;
+            // 延迟重试
+            setTimeout(attemptSend, delay * retryCount);
+          } else {
+            // 达到最大重试次数
+            resolve({error: '消息发送超时'});
+          }
+        }, timeout);
+        
+        chrome.tabs.sendMessage(tabId, message, response => {
+          clearTimeout(timeoutId);
+          
+          if (chrome.runtime.lastError) {
+            console.warn(`发送消息失败 (尝试 ${retryCount+1}/${maxRetries}):`, chrome.runtime.lastError.message);
+            
+            if (retryCount < maxRetries) {
+              retryCount++;
+              // 延迟重试
+              setTimeout(attemptSend, delay * retryCount);
+            } else {
+              // 达到最大重试次数
+              resolve({error: chrome.runtime.lastError.message});
+            }
+          } else {
+            // 成功收到响应
+            resolve(response || {success: true});
+          }
+        });
+      } catch (err) {
+        console.error('发送消息时发生异常:', err);
+        
+        if (retryCount < maxRetries) {
+          retryCount++;
+          setTimeout(attemptSend, delay * retryCount);
+        } else {
+          resolve({error: err.message});
+        }
+      }
+    }
+    
+    // 首次尝试
+    attemptSend();
+  });
 }
 
 // 获取页面信息
@@ -1083,62 +1232,17 @@ function addQuickSendButton() {
     // 添加点击事件
     quickSendBtn.addEventListener('click', () => {
       try {
-        const currentJobId = getCurrentJobId();
-        if (!currentJobId) {
-          alert('无法识别当前岗位，请刷新页面后重试');
-          return;
-        }
-        
-        // 获取针对当前岗位的打招呼语
-        chrome.storage.local.get(['jobGreetings', 'resumeData'], (result) => {
-          const jobGreetings = result.jobGreetings || {};
-          let greeting = jobGreetings[currentJobId];
+        // 获取当前保存的打招呼语
+        chrome.storage.local.get(['messageContent'], (result) => {
+          const greeting = result.messageContent;
           
-          if (greeting) {
-            // 如果有针对当前岗位的打招呼语，直接发送
-            console.log('正在使用针对当前岗位的打招呼语');
-            sendGreetingToBoss(greeting);
-          } else {
-            // 如果没有，但有简历数据，则尝试实时生成
-            if (result.resumeData) {
-              // 显示加载状态
-              quickSendBtn.textContent = '生成中...';
-              quickSendBtn.disabled = true;
-              
-              // 提取当前页面的JD
-              const jdData = extractJobDescription();
-              if (!jdData) {
-                alert('无法获取岗位描述，请刷新页面后重试');
-                quickSendBtn.textContent = '一键沟通';
-                quickSendBtn.disabled = false;
-                return;
-              }
-              
-              // 实时生成打招呼语
-              generateGreetingForJob(currentJobId, jdData, result.resumeData)
-                .then(newGreeting => {
-                  if (newGreeting) {
-                    // 生成成功，发送打招呼语
-                    sendGreetingToBoss(newGreeting);
-                    // 恢复按钮状态
-                    quickSendBtn.style.backgroundColor = '#00b38a';
-                  } else {
-                    alert('生成打招呼语失败，请在插件中手动生成');
-                  }
-                })
-                .catch(error => {
-                  console.error('实时生成打招呼语失败:', error);
-                  alert('生成失败: ' + error.message);
-                })
-                .finally(() => {
-                  // 恢复按钮状态
-                  quickSendBtn.textContent = '一键沟通';
-                  quickSendBtn.disabled = false;
-                });
-            } else {
-              alert('请先在插件中上传简历');
-            }
+          if (!greeting || greeting.trim().length < 5) {
+            alert('打招呼语至少需要5个字');
+            return;
           }
+          
+          // 发送打招呼语
+          sendGreetingToBoss(greeting);
         });
       } catch (error) {
         console.error('一键沟通点击事件出错:', error);
@@ -1317,10 +1421,15 @@ function updateQuickSendButtonState(isGenerated) {
   const quickSendBtn = document.getElementById('ai-quick-send-btn');
   if (!quickSendBtn) return;
   
-  quickSendBtn.style.backgroundColor = isGenerated ? '#00b38a' : '#ff6b6b';
-  quickSendBtn.title = isGenerated ? 
-    '点击一键发送已生成的打招呼语' : 
-    '请先在插件中生成打招呼语';
+  // 获取当前打招呼语内容
+  chrome.storage.local.get(['messageContent'], (result) => {
+    const hasValidContent = result.messageContent && result.messageContent.trim().length >= 5;
+    
+    quickSendBtn.style.backgroundColor = hasValidContent ? '#00b38a' : '#ff6b6b';
+    quickSendBtn.title = hasValidContent ? 
+      '点击发送打招呼语' : 
+      '请确保打招呼语至少有5个字';
+  });
 }
 
 // 在页面加载时添加按钮
@@ -1347,4 +1456,31 @@ function initQuickSendButton() {
   });
   
   observer.observe(document.body, { childList: true, subtree: true });
+}
+
+// 添加一个全局错误处理函数，用于捕获未处理的异常
+window.addEventListener('error', function(event) {
+  console.error('全局错误:', event.error);
+  // 防止错误传播
+  event.preventDefault();
+});
+
+// 添加一个未处理的Promise拒绝处理器
+window.addEventListener('unhandledrejection', function(event) {
+  console.error('未处理的Promise拒绝:', event.reason);
+  // 防止错误传播
+  event.preventDefault();
+});
+
+// 获取岗位的唯一标识
+function getJobHash() {
+  try {
+    const jd = extractJobDescription() || '';
+    const url = window.location.href;
+    // 使用URL和JD内容的组合作为唯一标识
+    return btoa(url + jd).slice(0, 32); // 使用base64编码并截取前32位作为hash
+  } catch (error) {
+    console.error('生成岗位hash失败:', error);
+    return null;
+  }
 }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Boss直聘AI助手",
-  "version": "1.1",
+  "version": "0.1.0",
   "description": "AI分析简历和岗位JD，生成个性化打招呼语，提高Boss直聘回复率",
   "permissions": [
     "storage",
@@ -16,13 +16,14 @@
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {
-      "16": "assets/icon.png",
-      "48": "assets/icon.png",
-      "128": "assets/icon.png"
+      "16": "assets/boss.png",
+      "48": "assets/boss.png",
+      "128": "assets/boss.png"
     }
   },
   "background": {
-    "service_worker": "scripts/background.js"
+    "service_worker": "scripts/background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
@@ -31,9 +32,9 @@
     }
   ],
   "icons": {
-    "16": "assets/icon.png",
-    "48": "assets/icon.png",
-    "128": "assets/icon.png"
+    "16": "assets/boss.png",
+    "48": "assets/boss.png",
+    "128": "assets/boss.png"
   },
   "web_accessible_resources": [
     {

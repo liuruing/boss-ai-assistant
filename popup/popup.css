@@ -214,13 +214,16 @@ footer {
 }
 
 .modal-content {
-  background-color: #fff;
-  margin: auto;
-  padding: 20px;
-  border-radius: 8px;
-  width: 320px;
-  max-width: 95vw;
   position: relative;
+  background-color: white;
+  margin: 5% auto;
+  padding: 20px;
+  width: 80%;
+  max-width: 500px;
+  max-height: 80vh;
+  border-radius: 15px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
 }
 
 .close-btn {
@@ -322,4 +325,206 @@ footer {
   display: inline-block;
   margin-bottom: 8px;
   text-align: center;
+}
+
+/* 选项卡样式 */
+.tabs-container {
+  border: 1px solid #eaeaea;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tabs-header {
+  display: flex;
+  background-color: #f5f5f5;
+  border-bottom: 1px solid #eaeaea;
+}
+
+.tab-btn {
+  padding: 10px 15px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+}
+
+.tab-btn.active {
+  background-color: #fff;
+  color: #1e88e5;
+  border-bottom: 2px solid #1e88e5;
+}
+
+.tab-content {
+  padding: 15px;
+  background-color: #fff;
+}
+
+/* 风格提示词输入框样式 */
+.style-prompt-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.style-prompt-input:focus {
+  border-color: #1e88e5;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(30,136,229,0.2);
+}
+
+/* 设置选项卡样式 */
+.settings-tabs-header {
+  display: flex;
+  border-bottom: 1px solid #ddd;
+  margin-bottom: 15px;
+}
+
+.settings-tab-btn {
+  padding: 10px 15px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+}
+
+.settings-tab-btn.active {
+  font-weight: bold;
+  color: #1e88e5;
+  border-bottom: 2px solid #1e88e5;
+}
+
+.settings-tab-content {
+  padding: 10px 5px;
+  max-height: 65vh;
+  overflow-y: auto;
+}
+
+/* 风格项目样式 */
+.style-item {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f9f9f9;
+  border-radius: 8px;
+  border: 1px solid #eee;
+}
+
+.style-item:last-child {
+  margin-bottom: 10px;
+}
+
+/* 风格名称输入框 */
+#style-name-1, #style-name-2, #style-name-3, #style-name-4 {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+/* 添加风格选择器样式 */
+.style-select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+
+/* 可编辑风格名称样式 */
+.editable-style-name {
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f5f5f5;
+  cursor: pointer;
+  font-weight: 500;
+  margin-bottom: 10px;
+  transition: background-color 0.2s;
+}
+
+.editable-style-name:hover {
+  background-color: #e8e8e8;
+}
+
+.editable-style-name.editing {
+  background-color: white;
+  border-color: #1e88e5;
+}
+
+.hint {
+  font-size: 12px;
+  color: #888;
+  font-weight: normal;
+  font-style: italic;
+}
+
+/* 当前风格信息 */
+#current-style-prompt {
+  min-height: 100px;
+}
+
+/* 风格选择器和输入框样式 */
+.form-control {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-control:focus {
+  border-color: #1e88e5;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(30,136,229,0.2);
+}
+
+/* 风格选择圆点样式 */
+.style-dots-container {
+  display: flex;
+  justify-content: space-between;
+  margin: 20px 0;
+  padding: 0 20px;
+}
+
+.style-dot {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.style-dot:hover {
+  transform: scale(1.1);
+}
+
+.style-dot.active {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 6px currentColor;
+}
+
+/* 圆点对应的风格颜色 */
+.style-dot[data-index="0"] {
+  background-color: #1e88e5; /* 专业蓝 */
+}
+
+.style-dot[data-index="1"] {
+  background-color: #ffb300; /* 热情黄 */
+}
+
+.style-dot[data-index="2"] {
+  background-color: #757575; /* 简洁灰 */
+}
+
+.style-dot[data-index="3"] {
+  background-color: #7cb342; /* 友好绿 */
 }
