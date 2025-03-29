@@ -1,5 +1,3 @@
-![image](https://github.com/user-attachments/assets/f39f3a17-9f5d-4136-9082-46672cc86a7c)# Boss AI Assistant
-
 一个基于人工智能的自动化求职助手，通过自动化流程帮助您在 Boss 直聘平台上打招呼。提取简历最精华最符合岗位要求的部分，生成个性化的打招呼语句，方便HR快速找到你的闪光点 。
 
 ## 项目简介
