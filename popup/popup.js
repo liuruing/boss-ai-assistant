@@ -201,17 +201,31 @@ function initUI() {
       messageContent.value = request.content;
       // 触发input事件以更新按钮状态
       messageContent.dispatchEvent(new Event('input'));
+    } else if (request.action === 'getCurrentGreeting') {
+      // 获取当前文本框中的打招呼语
+      const messageContent = document.getElementById('message-content');
+      if (messageContent) {
+        sendResponse({greeting: messageContent.value});
+      } else {
+        sendResponse({error: '无法获取当前打招呼语'});
+      }
+      return true; // 表示会异步发送响应
     }
   });
   
   // 在initUI函数中添加风格选择器的事件监听
   const styleSelector = document.getElementById('message-style');
   if (styleSelector) {
-    // 加载保存的风格选择
-    chrome.storage.local.get(['selectedStyle'], (result) => {
+    // 加载保存的风格选择和初始化预览
+    chrome.storage.local.get(['selectedStyle', 'stylePrompts'], (result) => {
+      const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+      
       if (result.selectedStyle) {
         styleSelector.value = result.selectedStyle;
       }
+      
+      // 初始化时更新风格预览
+      updateStylePreview(styleSelector.value, stylePrompts);
     });
 
     // 监听风格选择变化
@@ -220,6 +234,12 @@ function initUI() {
       // 保存选择的风格
       chrome.storage.local.set({ selectedStyle: selectedStyle }, () => {
         console.log('已保存选中的风格:', selectedStyle);
+      });
+      
+      // 获取最新的风格提示词并更新预览
+      chrome.storage.local.get(['stylePrompts'], (result) => {
+        const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+        updateStylePreview(selectedStyle, stylePrompts);
       });
     });
   }
@@ -598,8 +618,9 @@ function sendMessageWithRetry(tabId, message, maxRetries = 3, delay = 500) {
   });
 }
 
-// 修改生成打招呼语函数
-function generateGreeting() {
+// 修改生成打招呼语函数，添加重试功能
+function generateGreeting(retryCount = 0) {
+  const maxRetries = 1; // 最大重试次数
   const messageContent = document.getElementById('message-content');
   const progressContainer = document.getElementById('message-progress-container');
   const messageStyle = document.getElementById('message-style').value;
@@ -700,7 +721,7 @@ function generateGreeting() {
       
       // 添加超时处理
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('请求超时，请检查网络连接')), 30000)
+        setTimeout(() => reject(new Error('请求超时，正在重试...')), 30000)
       );
       
       // 调用API - 使用从存储中获取的模型
@@ -794,6 +815,19 @@ function generateGreeting() {
         })
         .catch(error => {
           console.error('生成打招呼语时出错:', error);
+          
+          // 检查是否是超时错误，并且未超过最大重试次数
+          if (error.message.includes('超时') && retryCount < maxRetries) {
+            console.log(`请求超时，正在进行第 ${retryCount + 1} 次重试...`);
+            updateMessageProgress(40, `请求超时，正在重试 (${retryCount + 1}/${maxRetries})...`);
+            
+            // 延迟1秒后重试
+            setTimeout(() => {
+              generateGreeting(retryCount + 1);
+            }, 1000);
+            return;
+          }
+          
           updateMessageProgress(100, `生成失败: ${error.message}`, true);
           
           // 在调试模式下显示错误信息
@@ -1566,15 +1600,28 @@ function loadAndDisplayStylePrompts() {
   });
 }
 
-// 恢复默认风格提示词
+// 恢复默认风格提示词 - 修改为更新主界面
 function resetStylePrompts() {
   if (confirm('确定要恢复默认风格设置吗？这将覆盖您的自定义设置。')) {
     // 从env.js获取默认值并保存
-    saveStylePromptsToStorage(DEFAULT_STYLE_PROMPTS);
+    chrome.storage.local.set({
+      stylePrompts: DEFAULT_STYLE_PROMPTS,
+      stylePromptsJson: JSON.stringify(DEFAULT_STYLE_PROMPTS)
+    }, () => {
+      console.log('已恢复默认风格设置');
+      
+      // 更新主界面的风格选择器
+      updateMessageStyleSelector(DEFAULT_STYLE_PROMPTS);
+      
+      // 重新加载风格设置页面
+      loadAndDisplayStylePrompts();
+      
+      alert('已恢复默认风格设置');
+    });
   }
 }
 
-// 修改保存风格提示词的函数
+// 修改保存风格提示词的函数，添加更新主界面风格选择器的逻辑
 function saveStylePrompts() {
   console.log('保存风格提示词...');
   chrome.storage.local.get(['stylePrompts'], function(result) {
@@ -1596,10 +1643,18 @@ function saveStylePrompts() {
       
       // 保存到storage - 使用JSON格式
       chrome.storage.local.set({
+        stylePrompts: stylePrompts,
         stylePromptsJson: JSON.stringify(stylePrompts)
       }, () => {
         console.log('风格设置已保存为JSON');
-        updateMessageStyleSelector();
+        
+        // 更新主界面的风格选择器
+        updateMessageStyleSelector(stylePrompts);
+        
+        // 获取当前选中的风格并更新预览
+        const currentStyleId = document.getElementById('message-style').value;
+        updateStylePreview(currentStyleId, stylePrompts);
+        
         alert('风格设置已保存！');
       });
     } else {
@@ -1609,10 +1664,20 @@ function saveStylePrompts() {
   });
 }
 
-// 更新主界面的风格选择下拉菜单
-function updateMessageStyleSelector() {
-  chrome.storage.local.get(['stylePrompts'], function(result) {
-    const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+// 更新主界面的风格选择下拉菜单 - 修改为接受stylePrompts参数
+function updateMessageStyleSelector(stylePrompts) {
+  // 如果没有提供stylePrompts，则从存储中获取
+  if (!stylePrompts) {
+    chrome.storage.local.get(['stylePrompts'], function(result) {
+      const prompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+      updateMessageStyleSelectorInternal(prompts);
+    });
+  } else {
+    updateMessageStyleSelectorInternal(stylePrompts);
+  }
+  
+  // 内部函数，实际更新选择器
+  function updateMessageStyleSelectorInternal(prompts) {
     const styleSelector = document.getElementById('message-style');
     
     if (!styleSelector) {
@@ -1627,7 +1692,7 @@ function updateMessageStyleSelector() {
     styleSelector.innerHTML = '';
     
     // 添加所有风格选项
-    stylePrompts.forEach(style => {
+    prompts.forEach(style => {
       const option = document.createElement('option');
       option.value = style.id;
       option.textContent = style.name;
@@ -1635,11 +1700,14 @@ function updateMessageStyleSelector() {
     });
     
     // 尝试恢复之前选中的值
-    const hasCurrentValue = stylePrompts.some(style => style.id === currentValue);
+    const hasCurrentValue = prompts.some(style => style.id === currentValue);
     if (hasCurrentValue) {
       styleSelector.value = currentValue;
     }
-  });
+    
+    // 更新风格预览
+    updateStylePreview(styleSelector.value, prompts);
+  }
 }
 
 // 添加恢复默认设置函数
@@ -2139,4 +2207,21 @@ function loadDebugMode() {
     DEBUG_MODE = result.debugMode || false;
     console.log('调试模式状态:', DEBUG_MODE ? '开启' : '关闭');
   });
+}
+
+// 添加更新风格预览的函数 - 使用实际的风格提示词
+function updateStylePreview(styleId, stylePrompts) {
+  const stylePreview = document.getElementById('style-preview');
+  if (!stylePreview) return;
+  
+  // 查找选中的风格
+  const selectedStyle = stylePrompts.find(style => style.id === styleId);
+  
+  if (selectedStyle && selectedStyle.prompt) {
+    // 截取提示词的前10个字符
+    const previewText = selectedStyle.prompt.substring(0, 10) + '...';
+    stylePreview.textContent = previewText;
+  } else {
+    stylePreview.textContent = '';
+  }
 }

@@ -1,5 +1,6 @@
 // 全局变量
 let currentJobDescription = null;
+let currentJobHash = null; // 添加全局变量存储当前JD的哈希值
 let floatingWindowManager = null;
 
 // 添加全局默认配置
@@ -31,9 +32,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // 刷新职位描述
     try {
       const jdData = extractJobDescription();
+      // 计算新的哈希值
+      const newJobHash = calculateJobHash(jdData);
+      
+      // 如果哈希值变化，标记需要重新生成打招呼语
+      if (newJobHash !== currentJobHash) {
+        currentJobHash = newJobHash;
+        // 存储新的哈希值
+        chrome.storage.local.set({ currentJobHash: newJobHash });
+        // 清除之前的打招呼语缓存
+        chrome.storage.local.remove(['cachedGreeting']);
+      }
+      
       safeResponse({
         success: !!jdData,
-        jobDescription: jdData
+        jobDescription: jdData,
+        hashChanged: newJobHash !== currentJobHash
       });
     } catch (error) {
       console.error('提取JD时出错:', error);
@@ -195,6 +209,8 @@ function initContentScript() {
       if (window.location.href !== lastUrl) {
         lastUrl = window.location.href;
         console.log('URL已更改，重新检测JD');
+        // 清除之前的打招呼语缓存
+        chrome.storage.local.remove(['cachedGreeting', 'currentJobHash']);
         setTimeout(autoDetectJobDescription, 1000);
       }
     });
@@ -458,7 +474,7 @@ function extractJobDescription() {
 }
 
 /**
- * 自动检测职位JD并存储
+ * 自动检测职位JD并存储，同时自动生成打招呼语
  */
 function autoDetectJobDescription() {
   try {
@@ -477,29 +493,22 @@ function autoDetectJobDescription() {
     
     console.log('成功检测到职位JD:', jdData.substring(0, 50) + '...');
     
-    // 获取API配置 - 支持JSON格式
-    chrome.storage.local.get(['apiSettingsJson', 'apiKey', 'apiEndpoint', 'resumeDataJson', 'resumeData'], (result) => {
-      let apiKey, apiEndpoint, resumeDataObj;
+    // 计算JD哈希值
+    const newJobHash = calculateJobHash(jdData);
+    
+    // 检查哈希值是否变化
+    chrome.storage.local.get(['currentJobHash', 'resumeDataJson', 'resumeData'], (result) => {
+      const oldJobHash = result.currentJobHash;
+      const hashChanged = newJobHash !== oldJobHash;
       
-      // 尝试从JSON中读取API设置
-      if (result.apiSettingsJson) {
-        try {
-          const apiSettings = JSON.parse(result.apiSettingsJson);
-          apiKey = apiSettings.apiKey;
-          apiEndpoint = apiSettings.apiEndpoint;
-        } catch (error) {
-          console.error('解析API设置JSON失败:', error);
-        }
-      }
-      
-      // 如果JSON解析失败或不存在，使用旧格式或默认值
-      apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
-      apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
+      // 获取简历数据
+      let resumeDataObj = null;
       
       // 尝试从JSON中读取简历数据
       if (result.resumeDataJson) {
         try {
           resumeDataObj = JSON.parse(result.resumeDataJson);
+          console.log('从JSON加载简历数据成功');
         } catch (error) {
           console.error('解析简历数据JSON失败:', error);
         }
@@ -508,90 +517,255 @@ function autoDetectJobDescription() {
       // 如果JSON解析失败或不存在，使用旧格式
       resumeDataObj = resumeDataObj || result.resumeData;
       
-      // 存储JD数据
+      if (hashChanged) {
+        console.log('JD内容已变化，需要重新生成打招呼语');
+        // 清除缓存的打招呼语
+        chrome.storage.local.remove(['cachedGreeting']);
+      }
+      
+      // 存储新的JD和哈希值
       chrome.storage.local.set({
         currentJobId: currentJobId,
-        jdData: jdData
+        jdData: jdData,
+        currentJobHash: newJobHash
       }, () => {
-        console.log('职位JD已保存');
+        console.log('职位JD和哈希值已保存');
         
-        // 获取简历数据、风格设置和当前选中的风格
-        chrome.storage.local.get(['resumeData', 'stylePrompts', 'selectedStyle'], (result) => {
-          if (result.resumeData) {
-            const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
-            
-            // 获取当前选中的风格，如果没有选中则使用第一个风格
-            let selectedStyle = stylePrompts[0];
-            if (result.selectedStyle) {
-              selectedStyle = stylePrompts.find(style => style.id === result.selectedStyle) || stylePrompts[0];
-            }
-            
-            console.log('使用风格:', selectedStyle.name);
-            
-            // 构建提示词
-            const prompt = `
-              职位描述: ${jdData}
-              
-              我的简历: ${result.resumeData.resumeText}
-              
-              风格要求: ${selectedStyle.prompt}
-              
-              请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
-            `;
-            
-            // 调用API生成打招呼语
-            fetch(`${apiEndpoint}/v1/chat/completions`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-              },
-              body: JSON.stringify({
-                model: DEFAULT_MODEL,
-                messages: [
-                  {
-                    role: "system",
-                    content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
-                  },
-                  {
-                    role: "user",
-                    content: prompt
-                  }
-                ],
-                temperature: 0.7,
-                max_tokens: 800
-              })
-            })
-            .then(response => response.json())
-            .then(data => {
-              const generatedText = data.choices[0].message.content.trim();
-              
-              // 保存生成的打招呼语
-              chrome.storage.local.set({
-                messageContent: generatedText,
-                currentJobGreeting: generatedText
-              }, () => {
-                console.log('打招呼语已自动生成并保存');
-                
-                // 通知popup更新显示
-                chrome.runtime.sendMessage({
-                  action: 'updateMessageContent',
-                  content: generatedText
-                });
-                
-                // 更新一键沟通按钮状态
-                updateQuickSendButtonState(true);
-              });
-            })
-            .catch(error => {
-              console.error('自动生成打招呼语失败:', error);
-            });
-          }
-        });
+        // 如果有简历数据，无论哈希值是否变化，都自动生成打招呼语
+        // 这确保了用户进入页面时总是能获得最新的打招呼语
+        if (resumeDataObj) {
+          console.log('检测到简历数据，自动生成打招呼语');
+          generateGreetingForCurrentJob(jdData, resumeDataObj);
+        } else {
+          console.log('未检测到简历数据，无法生成打招呼语');
+          // 可以在这里添加提示用户上传简历的逻辑
+        }
       });
     });
   } catch (error) {
     console.error('自动检测岗位JD出错:', error);
+  }
+}
+
+/**
+ * 计算JD内容的哈希值
+ * @param {string} jdText - JD文本内容
+ * @returns {string} - 哈希值
+ */
+function calculateJobHash(jdText) {
+  if (!jdText) return '';
+  
+  // 简单的哈希算法
+  let hash = 0;
+  for (let i = 0; i < jdText.length; i++) {
+    const char = jdText.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // 转换为32位整数
+  }
+  
+  // 转换为16进制字符串
+  return hash.toString(16);
+}
+
+/**
+ * 为当前岗位生成打招呼语
+ * @param {string} jdData - 岗位JD
+ * @param {Object} resumeData - 简历数据
+ */
+function generateGreetingForCurrentJob(jdData, resumeData) {
+  console.log('开始为当前岗位生成打招呼语...');
+  
+  // 获取API配置和风格设置
+  chrome.storage.local.get(['apiSettingsJson', 'apiKey', 'apiEndpoint', 'stylePrompts', 'selectedStyle'], (result) => {
+    let apiKey, apiEndpoint, model;
+    
+    // 尝试从JSON中读取API设置
+    if (result.apiSettingsJson) {
+      try {
+        const apiSettings = JSON.parse(result.apiSettingsJson);
+        apiKey = apiSettings.apiKey;
+        apiEndpoint = apiSettings.apiEndpoint;
+        model = apiSettings.model;
+      } catch (error) {
+        console.error('解析API设置JSON失败:', error);
+      }
+    }
+    
+    // 如果JSON解析失败或不存在，使用旧格式或默认值
+    apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
+    apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
+    model = model || DEFAULT_MODEL;
+    
+    // 获取风格设置
+    const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+    
+    // 获取当前选中的风格，如果没有选中则使用第一个风格
+    let selectedStyle = stylePrompts[0];
+    if (result.selectedStyle) {
+      selectedStyle = stylePrompts.find(style => style.id === result.selectedStyle) || stylePrompts[0];
+    }
+    
+    console.log('使用风格:', selectedStyle.name);
+    
+    // 构建提示词
+    const prompt = `
+      职位描述: ${jdData}
+      
+      我的简历: ${resumeData.resumeText}
+      
+      风格要求: ${selectedStyle.prompt}
+      
+      请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
+    `;
+    
+    console.log('正在调用API生成打招呼语...');
+    
+    // 调用API生成打招呼语
+    fetch(`${apiEndpoint}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          {
+            role: "system",
+            content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 800
+      })
+    })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`API请求失败: ${response.status}`);
+      }
+      return response.json();
+    })
+    .then(data => {
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        throw new Error('API返回数据格式错误');
+      }
+      
+      const generatedText = data.choices[0].message.content.trim();
+      console.log('打招呼语生成成功:', generatedText.substring(0, 30) + '...');
+      
+      // 保存生成的打招呼语
+      chrome.storage.local.set({
+        messageContent: generatedText,
+        cachedGreeting: generatedText,
+        currentJobGreeting: generatedText // 添加这个键以便popup可以直接使用
+      }, () => {
+        console.log('打招呼语已自动生成并保存');
+        
+        // 通知popup更新显示
+        chrome.runtime.sendMessage({
+          action: 'updateMessageContent',
+          content: generatedText
+        });
+        
+        // 更新一键沟通按钮状态
+        updateQuickSendButtonState(true);
+        
+        // 将按钮颜色改为绿色，表示已准备好
+        const quickSendBtn = document.getElementById('ai-quick-send-btn');
+        if (quickSendBtn) {
+          quickSendBtn.style.backgroundColor = '#00b38a'; // 绿色
+          quickSendBtn.title = '点击发送已生成的打招呼语';
+        }
+      });
+    })
+    .catch(error => {
+      console.error('自动生成打招呼语失败:', error);
+      
+      // 更新一键沟通按钮状态，表示生成失败
+      const quickSendBtn = document.getElementById('ai-quick-send-btn');
+      if (quickSendBtn) {
+        quickSendBtn.style.backgroundColor = '#ff6b6b'; // 红色
+        quickSendBtn.title = '生成打招呼语失败，点击重试';
+      }
+    });
+  });
+}
+
+// 更新JD信息
+async function updateJobDescription(newJdData) {
+  // 计算新旧JD的哈希值
+  const oldHash = currentJobHash;
+  const newHash = calculateJobHash(newJdData);
+  
+  // 如果hash变化了,清除缓存的打招呼语
+  if (oldHash !== newHash) {
+    console.log('JD内容已变化，清除缓存的打招呼语');
+    chrome.storage.local.remove(['cachedGreeting']);
+    // 更新当前哈希值
+    currentJobHash = newHash;
+    chrome.storage.local.set({ currentJobHash: newHash });
+  }
+  
+  jdData = newJdData;
+  
+  // 计算字数
+  const wordCount = newJdData ? newJdData.length : 0;
+  
+  // 安全地更新DOM
+  const jdContent = document.getElementById('jd-content');
+  if (jdContent) {
+    jdContent.textContent = newJdData;
+  }
+  
+  // 安全地更新状态指示器
+  const jdStatus = document.getElementById('jd-status');
+  const jdStatusDot = document.getElementById('jd-status-dot');
+  
+  if (jdStatus) {
+    jdStatus.textContent = `已获取岗位JD (${wordCount}字)`;
+  }
+  if (jdStatusDot) {
+    jdStatusDot.className = 'status-dot success';
+  }
+  
+  updateJdStatus(true);
+  
+  // 更新生成按钮状态
+  const generateBtn = document.getElementById('generate-btn');
+  if (generateBtn) {
+    generateBtn.disabled = !(resumeData && newJdData);
+  }
+  
+  // 如果有简历数据且JD哈希值变化，自动生成打招呼语
+  if (resumeData && oldHash !== newHash) {
+    try {
+      // 获取简历数据
+      chrome.storage.local.get(['resumeDataJson', 'resumeData'], (result) => {
+        let resumeDataObj = null;
+        
+        // 尝试从JSON中读取简历数据
+        if (result.resumeDataJson) {
+          try {
+            resumeDataObj = JSON.parse(result.resumeDataJson);
+          } catch (error) {
+            console.error('解析简历数据JSON失败:', error);
+          }
+        }
+        
+        // 如果JSON解析失败或不存在，使用旧格式
+        resumeDataObj = resumeDataObj || result.resumeData;
+        
+        if (resumeDataObj) {
+          generateGreetingForCurrentJob(newJdData, resumeDataObj);
+        }
+      });
+    } catch (error) {
+      console.error('自动生成打招呼语失败:', error);
+    }
   }
 }
 
@@ -1258,23 +1432,52 @@ function addQuickSendButton() {
     // 添加点击事件
     quickSendBtn.addEventListener('click', () => {
       try {
-        // 获取当前保存的打招呼语
-        chrome.storage.local.get(['messageContent'], (result) => {
-          const greeting = result.messageContent;
-          
-          if (!greeting || greeting.trim().length < 5) {
-            alert('打招呼语至少需要5个字');
+        // 直接从popup获取当前文本框内容，而不是从存储中获取
+        chrome.runtime.sendMessage({action: 'getCurrentGreeting'}, (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('获取当前打招呼语失败:', chrome.runtime.lastError.message);
+            // 如果无法从popup获取，则回退到存储中的内容
+            fallbackToStoredGreeting();
             return;
           }
           
-          // 发送打招呼语
-          sendGreetingToBoss(greeting);
+          if (response && response.greeting) {
+            const greeting = response.greeting;
+            
+            if (!greeting || greeting.trim().length < 5) {
+              alert('打招呼语至少需要5个字');
+              return;
+            }
+            
+            // 发送打招呼语
+            sendGreetingToBoss(greeting);
+          } else {
+            // 如果没有获取到内容，回退到存储中的内容
+            fallbackToStoredGreeting();
+          }
         });
       } catch (error) {
         console.error('一键沟通点击事件出错:', error);
         alert('操作失败: ' + error.message);
+        // 出错时回退到存储中的内容
+        fallbackToStoredGreeting();
       }
     });
+    
+    // 回退函数：从存储中获取打招呼语
+    function fallbackToStoredGreeting() {
+      chrome.storage.local.get(['messageContent'], (result) => {
+        const greeting = result.messageContent;
+        
+        if (!greeting || greeting.trim().length < 5) {
+          alert('打招呼语至少需要5个字');
+          return;
+        }
+        
+        // 发送打招呼语
+        sendGreetingToBoss(greeting);
+      });
+    }
     
     // 添加到页面
     chatBtn.parentNode.insertBefore(quickSendBtn, chatBtn.nextSibling);
