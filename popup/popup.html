@@ -497,6 +497,7 @@
       <div class="settings-tabs-header">
         <button type="button" class="settings-tab-btn active" data-tab="api">API设置</button>
         <button type="button" class="settings-tab-btn" data-tab="styles">风格设置</button>
+        <button type="button" class="settings-tab-btn" data-tab="backup">备份与恢复</button>
         <button type="button" class="settings-tab-btn" data-tab="help">帮助</button>
         <button type="button" class="settings-tab-btn" data-tab="about">关于</button>
       </div>
@@ -562,10 +563,73 @@
         </div>
       </div>
       
+      <!-- 备份与恢复选项卡 - 双列布局 -->
+      <div id="backup-tab" class="settings-tab-content" style="display: none;">
+        <h4 style="margin: 10px 0 15px;">备份与恢复</h4>
+        
+        <!-- 双列布局容器 -->
+        <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+          <!-- 左侧列 - 恢复设置 -->
+          <div style="flex: 1; background-color: #fff8e1; padding: 12px; border-radius: 8px;">
+            <h5 style="margin: 0 0 10px; color: #f57c00; font-size: 14px;">
+              <i class="fas fa-upload" style="margin-right: 5px;"></i>恢复设置
+            </h5>
+            <div style="border: 1px dashed #ffb74d; border-radius: 6px; padding: 10px; text-align: center;">
+              <button type="button" id="import-settings-btn" class="btn" 
+                style="width: 100%; background-color: #ff9800; font-size: 13px; padding: 6px 0;">
+                选择备份文件
+              </button>
+              <input type="file" id="import-settings-file" accept=".json" style="display: none;">
+              <p id="selected-file-name" style="margin: 8px 0 0; font-size: 11px; color: #888;">
+                未选择文件
+              </p>
+            </div>
+          </div>
+          
+          <!-- 右侧列 - 备份设置 -->
+          <div style="flex: 1; background-color: #e3f2fd; padding: 12px; border-radius: 8px;">
+            <h5 style="margin: 0 0 10px; color: #1565c0; font-size: 14px;">
+              <i class="fas fa-download" style="margin-right: 5px;"></i>备份设置
+            </h5>
+            <div style="margin-bottom: 10px;">
+              <label style="display: flex; align-items: center; font-size: 13px; margin-bottom: 5px;">
+                <input type="checkbox" id="backup-include-resume" checked style="margin-right: 5px;">
+                <span>包含简历数据</span>
+              </label>
+              <label style="display: flex; align-items: center; font-size: 13px;">
+                <input type="checkbox" id="backup-include-api-key" checked style="margin-right: 5px;">
+                <span>包含API密钥</span>
+              </label>
+            </div>
+            <button type="button" id="export-settings-btn" class="btn" 
+              style="width: 100%; background-color: #1e88e5; font-size: 13px; padding: 6px 0;">
+              导出设置
+            </button>
+          </div>
+        </div>
+        
+        <!-- 底部 - 重置设置 -->
+        <div style="background-color: #ffebee; padding: 12px; border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h5 style="margin: 0; color: #c62828; font-size: 14px;">
+              <i class="fas fa-exclamation-triangle" style="margin-right: 5px;"></i>重置设置
+            </h5>
+            <button type="button" id="factory-reset-btn" class="btn" 
+              style="background-color: #f44336; color: white; font-size: 13px; padding: 5px 10px;">
+              恢复默认设置
+            </button>
+          </div>
+          <p style="margin: 8px 0 0; font-size: 11px; color: #c62828;">
+            此操作将清除所有自定义设置，不可撤销
+          </p>
+        </div>
+      </div>
+      
       <!-- 帮助选项卡 -->
       <div id="help-tab" class="settings-tab-content" style="display: none;">
         <h4 style="margin: 10px 0;">帮助与支持</h4>
         
+        <!-- 现有的帮助内容 -->
         <div class="help-section">
           <h5 style="margin: 15px 0 10px;">常见问题</h5>
           <ul style="list-style: none; padding: 0; margin: 0;">
@@ -584,18 +648,20 @@
           </ul>
         </div>
         
+        <!-- 添加调试模式开关 -->
         <div class="help-section" style="margin-top: 20px;">
-          <h5 style="margin: 15px 0 10px;">重置选项</h5>
+          <h5 style="margin: 15px 0 10px;">开发者选项</h5>
           <div style="background-color: #f5f7fa; padding: 15px; border-radius: 8px;">
-            <p style="margin: 0 0 10px; color: #666;">
-              遇到问题？您可以尝试恢复所有设置为默认状态。
-              <br>
-              <small style="color: #ff6b6b;">注意：此操作将清除所有自定义设置。</small>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-size: 14px; color: #333;">调试模式</span>
+              <label class="switch">
+                <input type="checkbox" id="debug-mode-toggle">
+                <span class="slider round"></span>
+              </label>
+            </div>
+            <p style="margin: 10px 0 0; font-size: 12px; color: #666; font-style: italic;">
+              开启后将显示API请求和响应详情，仅供开发调试使用
             </p>
-            <button type="button" id="factory-reset-btn" class="btn" 
-              style="background-color: #ff6b6b; width: 100%;">
-              恢复默认设置
-            </button>
           </div>
         </div>
       </div>
@@ -610,6 +676,7 @@
           <p><strong>版本:</strong> <span id="about-version"></span></p>
           <p><strong>开发者:</strong> AI团队</p>
           <p><strong>联系方式:</strong> support@example.com</p>
+          <p><strong>QQ交流群:</strong> 1044040272</p>
         </div>
         <div style="margin-top: 20px; font-size: 12px; color: #666;">
           © 2023 AI团队. 保留所有权利。

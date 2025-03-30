@@ -477,41 +477,67 @@ function autoDetectJobDescription() {
     
     console.log('成功检测到职位JD:', jdData.substring(0, 50) + '...');
     
-    // 存储JD数据
-    chrome.storage.local.set({
-      currentJobId: currentJobId,
-      jdData: jdData
-    }, () => {
-      console.log('职位JD已保存');
+    // 获取API配置 - 支持JSON格式
+    chrome.storage.local.get(['apiSettingsJson', 'apiKey', 'apiEndpoint', 'resumeDataJson', 'resumeData'], (result) => {
+      let apiKey, apiEndpoint, resumeDataObj;
       
-      // 获取简历数据、风格设置和当前选中的风格
-      chrome.storage.local.get(['resumeData', 'stylePrompts', 'selectedStyle'], (result) => {
-        if (result.resumeData) {
-          const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
-          
-          // 获取当前选中的风格，如果没有选中则使用第一个风格
-          let selectedStyle = stylePrompts[0];
-          if (result.selectedStyle) {
-            selectedStyle = stylePrompts.find(style => style.id === result.selectedStyle) || stylePrompts[0];
-          }
-          
-          console.log('使用风格:', selectedStyle.name);
-          
-          // 构建提示词
-          const prompt = `
-            职位描述: ${jdData}
+      // 尝试从JSON中读取API设置
+      if (result.apiSettingsJson) {
+        try {
+          const apiSettings = JSON.parse(result.apiSettingsJson);
+          apiKey = apiSettings.apiKey;
+          apiEndpoint = apiSettings.apiEndpoint;
+        } catch (error) {
+          console.error('解析API设置JSON失败:', error);
+        }
+      }
+      
+      // 如果JSON解析失败或不存在，使用旧格式或默认值
+      apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
+      apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
+      
+      // 尝试从JSON中读取简历数据
+      if (result.resumeDataJson) {
+        try {
+          resumeDataObj = JSON.parse(result.resumeDataJson);
+        } catch (error) {
+          console.error('解析简历数据JSON失败:', error);
+        }
+      }
+      
+      // 如果JSON解析失败或不存在，使用旧格式
+      resumeDataObj = resumeDataObj || result.resumeData;
+      
+      // 存储JD数据
+      chrome.storage.local.set({
+        currentJobId: currentJobId,
+        jdData: jdData
+      }, () => {
+        console.log('职位JD已保存');
+        
+        // 获取简历数据、风格设置和当前选中的风格
+        chrome.storage.local.get(['resumeData', 'stylePrompts', 'selectedStyle'], (result) => {
+          if (result.resumeData) {
+            const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
             
-            我的简历: ${result.resumeData.resumeText}
+            // 获取当前选中的风格，如果没有选中则使用第一个风格
+            let selectedStyle = stylePrompts[0];
+            if (result.selectedStyle) {
+              selectedStyle = stylePrompts.find(style => style.id === result.selectedStyle) || stylePrompts[0];
+            }
             
-            风格要求: ${selectedStyle.prompt}
+            console.log('使用风格:', selectedStyle.name);
             
-            请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
-          `;
-          
-          // 获取API配置
-          chrome.storage.local.get(['apiKey', 'apiEndpoint'], (settings) => {
-            const apiKey = settings.apiKey || DEFAULT_API_KEY;
-            const apiEndpoint = settings.apiEndpoint || DEFAULT_API_ENDPOINT;
+            // 构建提示词
+            const prompt = `
+              职位描述: ${jdData}
+              
+              我的简历: ${result.resumeData.resumeText}
+              
+              风格要求: ${selectedStyle.prompt}
+              
+              请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
+            `;
             
             // 调用API生成打招呼语
             fetch(`${apiEndpoint}/v1/chat/completions`, {
@@ -560,8 +586,8 @@ function autoDetectJobDescription() {
             .catch(error => {
               console.error('自动生成打招呼语失败:', error);
             });
-          });
-        }
+          }
+        });
       });
     });
   } catch (error) {
@@ -1303,12 +1329,27 @@ function generateGreetingForJob(jobId, jdData, resumeData) {
       prompt += `我的简历：${resumeData.resumeText ? resumeData.resumeText.substring(0, 1500) : '未提供简历内容'}\n\n`;
       prompt += `请根据我的简历和岗位要求，帮我生成一段简短的打招呼语(不超过300字)，重点突出我的经验如何与该岗位的要求匹配，以及我对这个岗位的兴趣。`;
       
-      // 获取API配置
-      chrome.storage.local.get(['apiKey', 'apiEndpoint'], (result) => {
-        const apiKey = result.apiKey || DEFAULT_API_KEY;
-        const apiEndpoint = result.apiEndpoint || DEFAULT_API_ENDPOINT;
+      // 获取API配置 - 支持JSON格式
+      chrome.storage.local.get(['apiSettingsJson', 'apiKey', 'apiEndpoint'], (result) => {
+        let apiKey, apiEndpoint;
         
-        console.log('使用模型:', DEFAULT_MODEL);
+        // 尝试从JSON中读取
+        if (result.apiSettingsJson) {
+          try {
+            const apiSettings = JSON.parse(result.apiSettingsJson);
+            apiKey = apiSettings.apiKey;
+            apiEndpoint = apiSettings.apiEndpoint;
+          } catch (error) {
+            console.error('解析API设置JSON失败:', error);
+          }
+        }
+        
+        // 如果JSON解析失败或不存在，使用旧格式或默认值
+        apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
+        apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
+        
+        console.log('使用模型:', DEFAULT_MODEL, '，API端点:', apiEndpoint);
+        updateMessageProgress(30, '正在发送请求...');
         
         // 调用API
         fetch(`${apiEndpoint}/v1/chat/completions`, {

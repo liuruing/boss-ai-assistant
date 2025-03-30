@@ -10,6 +10,9 @@ import {
 let resumeData = null;
 let jdData = null;
 
+// 在文件顶部添加调试模式标志
+let DEBUG_MODE = false;
+
 // 在popup.js顶部添加调试日志函数
 function logDebug(message, data) {
   const timestamp = new Date().toISOString().substring(11, 23);
@@ -221,6 +224,32 @@ function initUI() {
     });
   }
   
+  // 添加导出设置按钮事件监听
+  document.getElementById('export-settings-btn')?.addEventListener('click', exportSettings);
+  
+  // 添加导入设置按钮事件监听
+  document.getElementById('import-settings-btn')?.addEventListener('click', () => {
+    document.getElementById('import-settings-file').click();
+  });
+  
+  // 添加文件输入变化事件监听
+  document.getElementById('import-settings-file')?.addEventListener('change', importSettings);
+  
+  // 加载调试模式状态
+  loadDebugMode();
+  
+  // 添加调试模式开关事件监听
+  const debugModeToggle = document.getElementById('debug-mode-toggle');
+  if (debugModeToggle) {
+    // 设置初始状态
+    debugModeToggle.checked = DEBUG_MODE;
+    
+    // 添加切换事件
+    debugModeToggle.addEventListener('change', function() {
+      toggleDebugMode();
+    });
+  }
+  
   console.log('UI初始化完成');
 }
 
@@ -238,13 +267,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // 加载存储的数据
 function loadStoredData() {
-  chrome.storage.local.get(['resumeData', 'jdData', 'apiKey', 'apiEndpoint', 'model'], (result) => {
-    // 加载简历数据
-    if (result.resumeData) {
-      resumeData = result.resumeData;
-      updateResumeStatus(true, result.resumeData.resumeText);
+  chrome.storage.local.get(['resumeDataJson', 'resumeData', 'jdData', 'apiSettingsJson', 'apiKey', 'apiEndpoint', 'model'], (result) => {
+    // 加载简历数据 - 优先使用JSON格式
+    let resumeDataObj = null;
+    
+    if (result.resumeDataJson) {
+      try {
+        resumeDataObj = JSON.parse(result.resumeDataJson);
+        console.log('从JSON加载简历数据成功');
+      } catch (error) {
+        console.error('解析简历数据JSON失败:', error);
+      }
+    }
+    
+    // 如果JSON解析失败或不存在，使用旧格式
+    resumeDataObj = resumeDataObj || result.resumeData;
+    
+    if (resumeDataObj) {
+      resumeData = resumeDataObj;
+      updateResumeStatus(true, resumeDataObj.resumeText);
       document.getElementById('resume-content').textContent = 
-        `简历已加载: ${result.resumeData.fileName || '手动输入的简历'}`;
+        `简历已加载: ${resumeDataObj.fileName || '手动输入的简历'}`;
     }
     
     // 加载JD数据
@@ -260,16 +303,42 @@ function loadStoredData() {
       generateBtn.disabled = !(resumeData && jdData);
     }
     
+    // 加载API设置 - 优先使用JSON格式
+    let apiKey, apiEndpoint, model;
+    
+    if (result.apiSettingsJson) {
+      try {
+        const apiSettings = JSON.parse(result.apiSettingsJson);
+        apiKey = apiSettings.apiKey;
+        apiEndpoint = apiSettings.apiEndpoint;
+        model = apiSettings.model;
+      } catch (error) {
+        console.error('解析API设置JSON失败:', error);
+      }
+    }
+    
+    // 如果JSON解析失败或不存在，使用旧格式或默认值
+    apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
+    apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
+    model = model || result.model || DEFAULT_MODEL;
+    
     // 设置默认模型（仅当没有保存的模型时）
-    if (!result.model) {
+    if (!model) {
       // 将默认模型设置为o3-mini
-      chrome.storage.local.set({ model: DEFAULT_MODEL });
+      model = DEFAULT_MODEL;
+      chrome.storage.local.set({ 
+        model: model,
+        apiSettingsJson: JSON.stringify({
+          apiKey: apiKey,
+          apiEndpoint: apiEndpoint,
+          model: model
+        })
+      });
     }
     
     // 更新主界面的模型显示
-    const currentModel = result.model || DEFAULT_MODEL;
     if (document.getElementById('model-badge')) {
-      document.getElementById('model-badge').textContent = `模型: ${currentModel}`;
+      document.getElementById('model-badge').textContent = `模型: ${model}`;
     }
   });
 }
@@ -343,22 +412,26 @@ function handleResumeUpload(event) {
           updateResumeProgress(60, '正在保存简历数据...');
           
           // 存储简历数据
-          resumeData = {
+          const resumeData = {
             fileName: file.name,
-            fileContent: null, // 不存储文件内容
+            fileType: file.type,
             resumeText: text,
             uploadDate: new Date().toISOString()
           };
           
-          // 保存到本地存储
-          chrome.storage.local.set({resumeData: resumeData}, () => {
+          // 保存到本地存储 - 使用JSON格式
+          chrome.storage.local.set({
+            resumeDataJson: JSON.stringify(resumeData)
+          }, () => {
             if (chrome.runtime.lastError) {
               console.error('保存简历失败:', chrome.runtime.lastError);
               updateResumeProgress(0, '保存失败: ' + chrome.runtime.lastError.message, true);
               return;
             }
             
-            console.log('简历已保存');
+            console.log('简历已保存为JSON格式');
+            // 更新全局变量
+            resumeData = resumeData;
             // 更新UI
             document.getElementById('resume-content').textContent = `简历已上传: ${file.name}`;
             updateResumeProgress(100, '简历处理完成!');
@@ -525,7 +598,7 @@ function sendMessageWithRetry(tabId, message, maxRetries = 3, delay = 500) {
   });
 }
 
-// 生成打招呼语
+// 修改生成打招呼语函数
 function generateGreeting() {
   const messageContent = document.getElementById('message-content');
   const progressContainer = document.getElementById('message-progress-container');
@@ -570,41 +643,74 @@ function generateGreeting() {
     console.log('生成打招呼语，提示词长度:', prompt.length);
     updateMessageProgress(20, '正在连接API...');
     
-    // 获取API配置
-    chrome.storage.local.get(['apiKey', 'apiEndpoint'], (result) => {
-      const apiKey = result.apiKey || DEFAULT_API_KEY;
-      const apiEndpoint = result.apiEndpoint || DEFAULT_API_ENDPOINT;
+    // 获取API配置 - 使用JSON格式存储的配置
+    chrome.storage.local.get(['apiSettingsJson', 'apiKey', 'apiEndpoint'], (result) => {
+      let apiKey, apiEndpoint, model;
       
-      console.log('使用模型:', DEFAULT_MODEL, '，API端点:', apiEndpoint);
+      // 尝试从JSON中读取
+      if (result.apiSettingsJson) {
+        try {
+          const apiSettings = JSON.parse(result.apiSettingsJson);
+          apiKey = apiSettings.apiKey;
+          apiEndpoint = apiSettings.apiEndpoint;
+          model = apiSettings.model;
+          console.log('从JSON加载API设置成功');
+        } catch (error) {
+          console.error('解析API设置JSON失败:', error);
+        }
+      }
+      
+      // 如果JSON解析失败或不存在，使用旧格式或默认值
+      apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
+      apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
+      model = model || window.DEFAULT_MODEL || DEFAULT_MODEL;
+      
+      console.log('使用模型:', model, '，API端点:', apiEndpoint);
       updateMessageProgress(30, '正在发送请求...');
+      
+      // 创建API请求体
+      const requestBody = {
+        model: model, // 使用从存储获取的模型名称
+        messages: [
+          {
+            role: "system",
+            content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.7,
+        max_tokens: 800
+      };
+      
+      // 在调试模式下显示API请求内容
+      if (DEBUG_MODE) {
+        showDebugPopup('API请求内容', {
+          endpoint: apiEndpoint,
+          model: model, // 显示当前使用的模型
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey.substring(0, 5)}...${apiKey.substring(apiKey.length - 5)}`
+          },
+          body: requestBody
+        });
+      }
       
       // 添加超时处理
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('请求超时，请检查网络连接')), 30000)
       );
       
-      // 调用API - 使用统一的模型变量
+      // 调用API - 使用从存储中获取的模型
       const fetchPromise = fetch(`${apiEndpoint}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${apiKey}`
         },
-        body: JSON.stringify({
-          model: DEFAULT_MODEL,
-          messages: [
-            {
-              role: "system",
-              content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 800
-        })
+        body: JSON.stringify(requestBody)
       });
       
       // 使用Promise.race来处理超时
@@ -621,6 +727,11 @@ function generateGreeting() {
         .then(data => {
           console.log('API响应成功:', data);
           updateMessageProgress(80, '生成完成，正在处理结果...');
+          
+          // 在调试模式下显示API响应内容
+          if (DEBUG_MODE) {
+            showDebugPopup('API响应内容', data);
+          }
           
           if (!data.choices || !data.choices[0] || !data.choices[0].message) {
             throw new Error('API返回数据格式错误');
@@ -684,6 +795,14 @@ function generateGreeting() {
         .catch(error => {
           console.error('生成打招呼语时出错:', error);
           updateMessageProgress(100, `生成失败: ${error.message}`, true);
+          
+          // 在调试模式下显示错误信息
+          if (DEBUG_MODE) {
+            showDebugPopup('API错误', {
+              error: error.message,
+              stack: error.stack
+            });
+          }
           
           // 显示错误信息
           messageContent.value = `生成失败: ${error.message}\n\n请检查API设置或网络连接。`;
@@ -913,13 +1032,42 @@ function saveSettings(event) {
     document.getElementById('model-name').value = DEFAULT_MODEL;
   }
   
-  // 保存设置 - 使用用户输入的模型名称
+  // 创建API设置对象
+  const apiSettings = {
+    apiKey: apiKey,
+    apiEndpoint: apiEndpoint,
+    model: model
+  };
+  
+  console.log('保存设置，使用模型:', model);
+  
+  // 使用JSON字符串存储
   chrome.storage.local.set({
-    apiKey,
-    apiEndpoint,
-    model
+    apiSettingsJson: JSON.stringify(apiSettings),
+    // 添加这些单独的字段以确保向后兼容
+    apiKey: apiKey,
+    apiEndpoint: apiEndpoint,
+    model: model  // 确保model单独保存
   }, () => {
-    console.log('设置已保存，使用模型:', model);
+    // 立即更新全局变量 - 这是关键
+    window.DEFAULT_MODEL = model;
+    
+    // 强制重新初始化环境变量
+    try {
+      // 通过动态修改js模块来强制刷新环境变量
+      const scriptEl = document.createElement('script');
+      scriptEl.textContent = `
+        // 强制更新全局变量
+        window.DEFAULT_MODEL = "${model}";
+        console.log('全局模型变量已更新为:', window.DEFAULT_MODEL);
+      `;
+      document.head.appendChild(scriptEl);
+      document.head.removeChild(scriptEl);
+    } catch (e) {
+      console.error('更新全局变量失败:', e);
+    }
+    
+    console.log('设置已保存，当前全局模型变量:', window.DEFAULT_MODEL);
     
     // 更新当前模型显示
     if (document.getElementById('current-model')) {
@@ -949,7 +1097,71 @@ function saveSettings(event) {
   });
 }
 
-// 处理简历文本提交
+// 加载API设置函数
+function loadApiSettings() {
+  chrome.storage.local.get(['apiSettingsJson', 'apiKey', 'apiEndpoint', 'model'], (result) => {
+    let apiKey, apiEndpoint, model;
+    
+    // 尝试从JSON中读取
+    if (result.apiSettingsJson) {
+      try {
+        const apiSettings = JSON.parse(result.apiSettingsJson);
+        apiKey = apiSettings.apiKey;
+        apiEndpoint = apiSettings.apiEndpoint;
+        model = apiSettings.model;
+      } catch (error) {
+        console.error('解析API设置JSON失败:', error);
+      }
+    }
+    
+    // 如果JSON解析失败或不存在，使用旧格式或默认值
+    apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
+    apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
+    model = model || result.model || DEFAULT_MODEL;
+    
+    document.getElementById('api-key').value = apiKey;
+    document.getElementById('api-endpoint').value = apiEndpoint;
+    document.getElementById('model-name').value = model;
+    document.getElementById('current-model').textContent = `当前模型: ${model}`;
+    
+    // 立即更新全局变量
+    window.DEFAULT_MODEL = model;
+    console.log('API设置已加载，全局模型变量已更新为:', window.DEFAULT_MODEL);
+  });
+}
+
+// 初始化风格提示词
+function initializeStylePrompts() {
+  console.log('初始化风格提示词...');
+  chrome.storage.local.get(['stylePromptsJson', 'stylePrompts'], function(result) {
+    let stylePrompts;
+    
+    // 尝试从JSON中读取
+    if (result.stylePromptsJson) {
+      try {
+        stylePrompts = JSON.parse(result.stylePromptsJson);
+        console.log('从JSON加载风格提示词成功');
+      } catch (error) {
+        console.error('解析风格提示词JSON失败:', error);
+      }
+    }
+    
+    // 如果JSON解析失败或不存在，使用旧格式或默认值
+    stylePrompts = stylePrompts || result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+    
+    // 保存到storage - 同时保存JSON格式
+    chrome.storage.local.set({
+      stylePrompts: stylePrompts,
+      stylePromptsJson: JSON.stringify(stylePrompts)
+    }, function() {
+      console.log('风格提示词已保存到storage (包括JSON格式)');
+      // 无论是否首次使用,都从storage加载并更新UI
+      loadAndDisplayStylePrompts();
+    });
+  });
+}
+
+// 修改简历文本提交函数
 function handleResumeTextSubmit() {
   const textArea = document.getElementById('resume-text-input');
   const resumeText = textArea.value.trim();
@@ -968,9 +1180,9 @@ function handleResumeTextSubmit() {
   
   try {
     // 存储简历数据
-    resumeData = {
+    const resumeData = {
       fileName: '手动输入的简历.txt',
-      fileContent: null, // 没有文件内容
+      fileType: 'text/plain',
       resumeText: resumeText,
       uploadDate: new Date().toISOString()
     };
@@ -978,15 +1190,19 @@ function handleResumeTextSubmit() {
     // 更新进度
     updateResumeProgress(50, '正在保存简历...');
     
-    // 保存到本地存储
-    chrome.storage.local.set({resumeData: resumeData}, () => {
+    // 保存到本地存储 - 使用JSON格式
+    chrome.storage.local.set({
+      resumeDataJson: JSON.stringify(resumeData)
+    }, () => {
       if (chrome.runtime.lastError) {
         console.error('保存简历失败:', chrome.runtime.lastError);
         updateResumeProgress(0, '保存失败: ' + chrome.runtime.lastError.message, true);
         return;
       }
       
-      console.log('简历已保存');
+      console.log('简历已保存为JSON格式');
+      // 更新全局变量
+      window.resumeData = resumeData;
       // 更新UI
       document.getElementById('resume-content').textContent = `简历已保存: 手动输入的文本`;
       updateResumeProgress(100, '简历文本处理完成!');
@@ -1162,6 +1378,10 @@ function testApiConnection() {
   
   const apiKey = document.getElementById('api-key').value;
   const apiEndpoint = document.getElementById('api-endpoint').value || DEFAULT_API_ENDPOINT;
+  // 重要: 直接从当前全局变量获取模型名称
+  const modelName = window.DEFAULT_MODEL || document.getElementById('model-name').value;
+  
+  console.log('当前测试的模型:', modelName, '全局变量DEFAULT_MODEL:', window.DEFAULT_MODEL);
   
   if (!apiKey) {
     resultDiv.textContent = '请输入API密钥';
@@ -1169,24 +1389,40 @@ function testApiConnection() {
     return;
   }
   
-  // 简单的测试请求 - 使用统一的模型变量
+  // 创建请求对象用于显示
+  const requestBody = {
+    model: modelName,  // 使用全局变量
+    messages: [
+      {
+        role: "user",
+        content: "你好，这是一个API测试。请回复'API连接正常'"
+      }
+    ],
+    temperature: 0.7,
+    max_tokens: 50
+  };
+  
+  // 在调试模式下显示API请求内容
+  if (DEBUG_MODE) {
+    showDebugPopup('API测试请求', {
+      url: `${apiEndpoint}/v1/chat/completions`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey.substring(0, 5)}...${apiKey.substring(apiKey.length - 5)}`
+      },
+      body: requestBody
+    });
+  }
+  
+  // 使用当前全局模型变量发送请求
   fetch(`${apiEndpoint}/v1/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`
     },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      messages: [
-        {
-          role: "user",
-          content: "你好，这是一个API测试。请回复'API连接正常'"
-        }
-      ],
-      temperature: 0.7,
-      max_tokens: 50
-    })
+    body: JSON.stringify(requestBody)
   })
   .then(response => {
     if (!response.ok) {
@@ -1198,11 +1434,24 @@ function testApiConnection() {
     console.log('API测试响应:', data);
     resultDiv.textContent = '✅ API连接正常';
     resultDiv.style.color = '#00b38a';
+    
+    // 在调试模式下显示API响应内容
+    if (DEBUG_MODE) {
+      showDebugPopup('API测试响应', data);
+    }
   })
   .catch(error => {
     console.error('API测试失败:', error);
     resultDiv.textContent = `❌ API测试失败: ${error.message}`;
     resultDiv.style.color = '#ff6b6b';
+    
+    // 在调试模式下显示错误信息
+    if (DEBUG_MODE) {
+      showDebugPopup('API测试错误', {
+        error: error.message,
+        stack: error.stack
+      });
+    }
   });
 }
 
@@ -1236,30 +1485,6 @@ function safeSetClassName(id, className) {
   }
   console.warn(`无法找到元素: ${id}`);
   return false;
-}
-
-// 初始化风格提示词
-function initializeStylePrompts() {
-  console.log('初始化风格提示词...');
-  chrome.storage.local.get(['stylePrompts'], function(result) {
-    if (!result.stylePrompts) {
-      // 首次使用,从env.js获取默认值并保存
-      saveStylePromptsToStorage(DEFAULT_STYLE_PROMPTS);
-    }
-    // 无论是否首次使用,都从storage加载并更新UI
-    loadAndDisplayStylePrompts();
-  });
-}
-
-// 保存风格提示词到storage
-function saveStylePromptsToStorage(stylePrompts) {
-  chrome.storage.local.set({ 'stylePrompts': stylePrompts }, function() {
-    console.log('风格提示词已保存到storage');
-    // 保存后更新UI
-    loadAndDisplayStylePrompts();
-    // 更新下拉菜单
-    updateMessageStyleSelector();
-  });
 }
 
 // 设置风格名称双击编辑功能
@@ -1349,7 +1574,7 @@ function resetStylePrompts() {
   }
 }
 
-// 修改保存风格按钮的处理函数
+// 修改保存风格提示词的函数
 function saveStylePrompts() {
   console.log('保存风格提示词...');
   chrome.storage.local.get(['stylePrompts'], function(result) {
@@ -1369,9 +1594,14 @@ function saveStylePrompts() {
         prompt: newPrompt || DEFAULT_STYLE_PROMPTS[currentIndex].prompt
       };
       
-      // 保存到storage
-      saveStylePromptsToStorage(stylePrompts);
-      alert('风格设置已保存！');
+      // 保存到storage - 使用JSON格式
+      chrome.storage.local.set({
+        stylePromptsJson: JSON.stringify(stylePrompts)
+      }, () => {
+        console.log('风格设置已保存为JSON');
+        updateMessageStyleSelector();
+        alert('风格设置已保存！');
+      });
     } else {
       console.error('无效的风格索引:', currentIndex);
       alert('保存失败：无效的风格索引');
@@ -1409,18 +1639,6 @@ function updateMessageStyleSelector() {
     if (hasCurrentValue) {
       styleSelector.value = currentValue;
     }
-  });
-}
-
-// 添加加载API设置函数
-function loadApiSettings() {
-  chrome.storage.local.get(['apiKey', 'apiEndpoint', 'model'], (result) => {
-    document.getElementById('api-key').value = result.apiKey || DEFAULT_API_KEY;
-    document.getElementById('api-endpoint').value = result.apiEndpoint || DEFAULT_API_ENDPOINT;
-    
-    const currentModel = result.model || DEFAULT_MODEL;
-    document.getElementById('model-name').value = currentModel;
-    document.getElementById('current-model').textContent = `当前模型: ${currentModel}`;
   });
 }
 
@@ -1503,4 +1721,422 @@ function factoryReset() {
       });
     });
   }
+}
+
+/**
+ * 导出所有设置到JSON文件
+ */
+function exportSettings() {
+  try {
+    console.log('开始导出设置...');
+    
+    // 获取导出选项
+    const includeResume = document.getElementById('backup-include-resume').checked;
+    const includeApiKey = document.getElementById('backup-include-api-key').checked;
+    
+    // 获取所有需要导出的设置
+    chrome.storage.local.get([
+      'apiSettingsJson', 
+      'stylePromptsJson', 
+      'resumeDataJson',
+      'apiKey',
+      'apiEndpoint',
+      'model',
+      'stylePrompts'
+    ], (result) => {
+      // 创建导出对象
+      const exportData = {
+        version: getVersion(),
+        exportDate: new Date().toISOString(),
+        settings: {}
+      };
+      
+      // 添加API设置
+      if (result.apiSettingsJson) {
+        try {
+          const apiSettings = JSON.parse(result.apiSettingsJson);
+          
+          // 如果不包含API密钥，则移除
+          if (!includeApiKey && apiSettings) {
+            apiSettings.apiKey = ''; // 清空API密钥
+          }
+          
+          exportData.settings.api = apiSettings;
+        } catch (error) {
+          console.error('解析API设置JSON失败:', error);
+          // 使用旧格式
+          exportData.settings.api = {
+            apiKey: includeApiKey ? (result.apiKey || DEFAULT_API_KEY) : '',
+            apiEndpoint: result.apiEndpoint || DEFAULT_API_ENDPOINT,
+            model: result.model || DEFAULT_MODEL
+          };
+        }
+      } else {
+        // 使用旧格式
+        exportData.settings.api = {
+          apiKey: includeApiKey ? (result.apiKey || DEFAULT_API_KEY) : '',
+          apiEndpoint: result.apiEndpoint || DEFAULT_API_ENDPOINT,
+          model: result.model || DEFAULT_MODEL
+        };
+      }
+      
+      // 添加风格设置
+      if (result.stylePromptsJson) {
+        try {
+          exportData.settings.styles = JSON.parse(result.stylePromptsJson);
+        } catch (error) {
+          console.error('解析风格设置JSON失败:', error);
+          exportData.settings.styles = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+        }
+      } else {
+        exportData.settings.styles = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
+      }
+      
+      // 添加简历数据（如果选择包含）
+      if (includeResume && result.resumeDataJson) {
+        try {
+          exportData.settings.resume = JSON.parse(result.resumeDataJson);
+          // 移除可能的敏感信息
+          if (exportData.settings.resume) {
+            delete exportData.settings.resume.fileContent; // 删除文件内容
+          }
+        } catch (error) {
+          console.error('解析简历数据JSON失败:', error);
+        }
+      }
+      
+      // 转换为JSON字符串
+      const jsonString = JSON.stringify(exportData, null, 2);
+      
+      // 创建Blob对象
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      
+      // 创建下载链接
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `boss-ai-assistant-settings-${new Date().toISOString().slice(0, 10)}.json`;
+      
+      // 触发下载
+      document.body.appendChild(a);
+      a.click();
+      
+      // 清理
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+      
+      console.log('设置导出成功');
+      
+      // 显示成功消息
+      showToast('设置导出成功！', 'success');
+    });
+  } catch (error) {
+    console.error('导出设置失败:', error);
+    showToast('导出设置失败: ' + error.message, 'error');
+  }
+}
+
+/**
+ * 从JSON文件导入设置
+ * @param {Event} event - 文件输入事件
+ */
+function importSettings(event) {
+  try {
+    const file = event.target.files[0];
+    if (!file) {
+      console.log('没有选择文件');
+      return;
+    }
+    
+    // 更新选择的文件名显示
+    const fileNameElement = document.getElementById('selected-file-name');
+    if (fileNameElement) {
+      fileNameElement.textContent = file.name;
+      fileNameElement.style.color = '#1e88e5';
+    }
+    
+    console.log('开始导入设置...');
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        const importData = JSON.parse(e.target.result);
+        
+        // 验证导入数据格式
+        if (!importData.settings) {
+          throw new Error('无效的设置文件格式');
+        }
+        
+        // 显示导入确认对话框
+        const confirmMessage = `确定要导入以下设置吗？\n\n` +
+          `- API设置: ${importData.settings.api ? '是' : '否'}\n` +
+          `- 风格设置: ${importData.settings.styles ? '是' : '否'}\n` +
+          `- 简历数据: ${importData.settings.resume ? '是' : '否'}\n\n` +
+          `导入将覆盖现有设置。`;
+        
+        if (confirm(confirmMessage)) {
+          // 开始导入
+          const newSettings = {};
+          
+          // 导入API设置
+          if (importData.settings.api) {
+            newSettings.apiSettingsJson = JSON.stringify(importData.settings.api);
+            // 同时保存旧格式以兼容
+            newSettings.apiKey = importData.settings.api.apiKey;
+            newSettings.apiEndpoint = importData.settings.api.apiEndpoint;
+            newSettings.model = importData.settings.api.model;
+          }
+          
+          // 导入风格设置
+          if (importData.settings.styles) {
+            newSettings.stylePromptsJson = JSON.stringify(importData.settings.styles);
+            newSettings.stylePrompts = importData.settings.styles;
+          }
+          
+          // 导入简历数据（如果存在）
+          if (importData.settings.resume) {
+            newSettings.resumeDataJson = JSON.stringify(importData.settings.resume);
+          }
+          
+          // 保存到存储
+          chrome.storage.local.set(newSettings, () => {
+            if (chrome.runtime.lastError) {
+              console.error('保存导入设置失败:', chrome.runtime.lastError);
+              showToast('导入失败: ' + chrome.runtime.lastError.message, 'error');
+              return;
+            }
+            
+            console.log('设置导入成功');
+            showToast('设置导入成功！', 'success');
+            
+            // 重新加载UI以显示新设置
+            loadApiSettings();
+            loadStylePrompts();
+            loadStoredData();
+            
+            // 如果在设置页面，更新显示
+            if (document.getElementById('settings-modal').classList.contains('show')) {
+              // 重新加载风格设置
+              loadAndDisplayStylePrompts();
+            }
+          });
+        }
+      } catch (error) {
+        console.error('解析导入文件失败:', error);
+        showToast('导入失败: ' + error.message, 'error');
+      }
+    };
+    
+    reader.onerror = function() {
+      console.error('读取文件失败');
+      showToast('读取文件失败', 'error');
+    };
+    
+    reader.readAsText(file);
+    
+    // 清空文件输入，以便可以重复导入同一个文件
+    event.target.value = '';
+  } catch (error) {
+    console.error('导入设置失败:', error);
+    showToast('导入设置失败: ' + error.message, 'error');
+  }
+}
+
+/**
+ * 显示提示消息
+ * @param {string} message - 消息内容
+ * @param {string} type - 消息类型 (success, error, info)
+ */
+function showToast(message, type = 'info') {
+  // 检查是否已存在toast元素
+  let toast = document.getElementById('settings-toast');
+  if (!toast) {
+    // 创建toast元素
+    toast = document.createElement('div');
+    toast.id = 'settings-toast';
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 10px 20px;
+      border-radius: 4px;
+      color: white;
+      font-size: 14px;
+      z-index: 10000;
+      transition: opacity 0.3s;
+    `;
+    document.body.appendChild(toast);
+  }
+  
+  // 设置样式
+  switch (type) {
+    case 'success':
+      toast.style.backgroundColor = '#4caf50';
+      break;
+    case 'error':
+      toast.style.backgroundColor = '#f44336';
+      break;
+    default:
+      toast.style.backgroundColor = '#2196f3';
+  }
+  
+  // 设置消息
+  toast.textContent = message;
+  toast.style.opacity = '1';
+  
+  // 3秒后隐藏
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 300);
+  }, 3000);
+}
+
+// 添加调试弹窗函数
+function showDebugPopup(title, content) {
+  if (!DEBUG_MODE) return; // 只在调试模式下显示
+  
+  // 创建弹窗元素
+  const debugPopup = document.createElement('div');
+  debugPopup.className = 'debug-popup';
+  debugPopup.style.cssText = `
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 80%;
+    max-width: 800px;
+    max-height: 80vh;
+    background-color: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  `;
+  
+  // 创建标题栏
+  const popupHeader = document.createElement('div');
+  popupHeader.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: #4285f4;
+    color: white;
+    font-weight: bold;
+  `;
+  
+  // 标题
+  const popupTitle = document.createElement('div');
+  popupTitle.textContent = title;
+  popupHeader.appendChild(popupTitle);
+  
+  // 关闭按钮
+  const closeButton = document.createElement('button');
+  closeButton.textContent = '×';
+  closeButton.style.cssText = `
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 5px;
+  `;
+  closeButton.onclick = () => document.body.removeChild(debugPopup);
+  popupHeader.appendChild(closeButton);
+  
+  // 内容区域
+  const popupContent = document.createElement('div');
+  popupContent.style.cssText = `
+    padding: 15px;
+    overflow-y: auto;
+    flex-grow: 1;
+    font-family: monospace;
+    white-space: pre-wrap;
+    font-size: 13px;
+    background-color: #282c34;
+    color: #abb2bf;
+  `;
+  
+  // 格式化JSON内容
+  if (typeof content === 'object') {
+    try {
+      popupContent.textContent = JSON.stringify(content, null, 2);
+    } catch (e) {
+      popupContent.textContent = content.toString();
+    }
+  } else {
+    popupContent.textContent = content;
+  }
+  
+  // 底部按钮区域
+  const popupFooter = document.createElement('div');
+  popupFooter.style.cssText = `
+    display: flex;
+    justify-content: flex-end;
+    padding: 10px 15px;
+    background-color: #f1f3f4;
+    border-top: 1px solid #ddd;
+  `;
+  
+  // 复制按钮
+  const copyButton = document.createElement('button');
+  copyButton.textContent = '复制内容';
+  copyButton.style.cssText = `
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  `;
+  copyButton.onclick = () => {
+    navigator.clipboard.writeText(popupContent.textContent)
+      .then(() => {
+        copyButton.textContent = '已复制!';
+        setTimeout(() => {
+          copyButton.textContent = '复制内容';
+        }, 2000);
+      })
+      .catch(err => {
+        console.error('复制失败:', err);
+        copyButton.textContent = '复制失败';
+      });
+  };
+  popupFooter.appendChild(copyButton);
+  
+  // 组装弹窗
+  debugPopup.appendChild(popupHeader);
+  debugPopup.appendChild(popupContent);
+  debugPopup.appendChild(popupFooter);
+  
+  // 添加到页面
+  document.body.appendChild(debugPopup);
+}
+
+// 添加切换调试模式的函数
+function toggleDebugMode() {
+  DEBUG_MODE = !DEBUG_MODE;
+  chrome.storage.local.set({ debugMode: DEBUG_MODE }, () => {
+    console.log('调试模式已' + (DEBUG_MODE ? '开启' : '关闭'));
+    showToast('调试模式已' + (DEBUG_MODE ? '开启' : '关闭'), DEBUG_MODE ? 'info' : 'success');
+  });
+}
+
+// 在初始化时加载调试模式状态
+function loadDebugMode() {
+  chrome.storage.local.get(['debugMode'], (result) => {
+    DEBUG_MODE = result.debugMode || false;
+    console.log('调试模式状态:', DEBUG_MODE ? '开启' : '关闭');
+  });
 }
