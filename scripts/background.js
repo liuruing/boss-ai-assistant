@@ -1,5 +1,8 @@
 // 后台脚本，负责长时间运行的任务和与API的通信
 
+// 导入环境配置（如果支持模块导入）
+// import { DEFAULT_MODEL, DEFAULT_API_KEY, DEFAULT_API_ENDPOINT } from '../lib/env.js';
+
 // 监听来自popup或content script的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background script received message:', request);
@@ -139,12 +142,10 @@ async function generateGreeting(data) {
 
 // 调用OpenAI API
 async function callAzureOpenAI(prompt, settings) {
-  // 使用用户提供的API密钥或默认密钥
-  const apiKey = settings?.apiKey || "sk-7rg66CMVkix5YRqvUlst5FHHHa9YHkzbyFKxroSwLxJ3URw3";
-  // 使用用户设置的基础URL或默认中转URL
-  const baseUrl = settings?.apiEndpoint || "https://api.bailili.top";
-  // 使用用户设置的模型或默认模型
-  const model = settings?.model || "claude-3-7-sonnet-20250219";
+  // 从全局变量获取默认值，这样就和env.js中保持一致
+  const apiKey = settings?.apiKey || window.DEFAULT_API_KEY || "";
+  const baseUrl = settings?.apiEndpoint || window.DEFAULT_API_ENDPOINT || "https://api.bailili.top";
+  const model = settings?.model || window.DEFAULT_MODEL || "claude-3-5-haiku-20241022";
   
   try {
     const url = `${baseUrl}/v1/chat/completions`;
@@ -192,11 +193,11 @@ chrome.runtime.onInstalled.addListener(details => {
     const version = chrome.runtime.getManifest().version;
     console.log(`Boss直聘AI助手 v${version} 已安装`);
     
-    // 设置默认配置
+    // 从全局变量获取默认配置
     chrome.storage.local.set({
-      defaultApiEndpoint: 'https://api.bailili.top',
-      defaultApiKey: 'sk-7rg66CMVkix5YRqvUlst5FHHHa9YHkzbyFKxroSwLxJ3URw3',
-      defaultModel: 'claude-3-7-sonnet-20250219'
+      defaultApiEndpoint: window.DEFAULT_API_ENDPOINT || 'https://api.bailili.top',
+      defaultApiKey: window.DEFAULT_API_KEY || '',
+      defaultModel: window.DEFAULT_MODEL || 'claude-3-5-haiku-20241022'
     });
     
     // 打开欢迎页面或设置页面

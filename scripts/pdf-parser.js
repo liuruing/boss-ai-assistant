@@ -3,7 +3,7 @@
  */
 
 class ResumeParser {
-  constructor(apiUrl = 'http://192.168.123.83:48000/general/v0/general') {
+  constructor(apiUrl = 'http://127.0.0.1:48000/general/v0/general') {
     this.apiUrl = apiUrl;
   }
 

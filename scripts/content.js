@@ -3,10 +3,11 @@ let currentJobDescription = null;
 let currentJobHash = null; // 添加全局变量存储当前JD的哈希值
 let floatingWindowManager = null;
 
-// 添加全局默认配置
-const DEFAULT_MODEL = 'o3-mini';
-const DEFAULT_API_KEY = 'sk-7rg66CMVkix5YRqvUlst5FHHHa9YHkzbyFKxroSwLxJ3URw3';
-const DEFAULT_API_ENDPOINT = 'https://api.bailili.top';
+// 使用从env.js中加载的全局变量
+// 不再硬编码默认值
+const DEFAULT_MODEL = window.DEFAULT_MODEL || 'claude-3-5-haiku-20241022';
+const DEFAULT_API_KEY = window.DEFAULT_API_KEY || '';
+const DEFAULT_API_ENDPOINT = window.DEFAULT_API_ENDPOINT || 'https://api.bailili.top';
 
 // 监听来自popup和background的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {

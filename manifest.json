@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Boss直聘AI助手",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI分析简历和岗位JD，生成个性化打招呼语，提高Boss直聘回复率",
   "permissions": [
     "storage",
@@ -11,7 +11,7 @@
   ],
   "host_permissions": [
     "https://www.zhipin.com/*",
-    "http://192.168.123.83:48000/*"
+    "http://127.0.0.1:48000/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",
@@ -28,7 +28,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.zhipin.com/*"],
-      "js": ["scripts/pdf-parser.js", "scripts/content.js"]
+      "js": ["lib/env.js", "scripts/pdf-parser.js", "scripts/content.js"]
     }
   ],
   "icons": {
