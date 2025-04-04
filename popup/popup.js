@@ -285,28 +285,152 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 500);
 });
 
+/**
+ * 压缩简历文本以节省存储空间
+ * @param {string} resumeText - 简历文本
+ * @returns {string} - 压缩后的文本
+ */
+async function compressResumeText(resumeText) {
+  try {
+    if (!resumeText) return '';
+    
+    // 使用TextEncoder转换为UTF-8字节
+    const textEncoder = new TextEncoder();
+    const bytes = textEncoder.encode(resumeText);
+    
+    // 压缩字节
+    const compressedBytes = await new Promise((resolve, reject) => {
+      try {
+        // 使用CompressionStream API压缩 (如果浏览器支持)
+        if (window.CompressionStream) {
+          const cs = new CompressionStream('gzip');
+          const writer = cs.writable.getWriter();
+          writer.write(bytes);
+          writer.close();
+          
+          return new Response(cs.readable)
+            .arrayBuffer()
+            .then(buffer => resolve(new Uint8Array(buffer)));
+        } else {
+          // 回退到pako库 (需要单独引入pako库)
+          if (window.pako) {
+            resolve(window.pako.deflate(bytes));
+          } else {
+            // 如果没有可用的压缩方法，返回原始bytes
+            resolve(bytes);
+          }
+        }
+      } catch (error) {
+        console.error('压缩失败，使用原始文本:', error);
+        reject(error);
+      }
+    });
+    
+    // 转换为Base64
+    const base64Compressed = btoa(
+      Array.from(compressedBytes)
+        .map(byte => String.fromCharCode(byte))
+        .join('')
+    );
+    
+    console.log(`简历压缩: ${resumeText.length} -> ${base64Compressed.length} 字节`);
+    return base64Compressed;
+  } catch (error) {
+    console.error('压缩简历失败:', error);
+    return resumeText; // 出错时返回原始文本
+  }
+}
+
+/**
+ * 解压缩简历文本
+ * @param {string} compressedText - 压缩的Base64文本
+ * @returns {string} - 解压后的原始文本
+ */
+async function decompressResumeText(compressedText) {
+  try {
+    if (!compressedText) return '';
+    
+    // 判断是否是压缩的文本
+    if (!compressedText.match(/^[A-Za-z0-9+/]+=*$/)) {
+      // 如果不是Base64格式，可能是未压缩的文本
+      return compressedText;
+    }
+    
+    // 从Base64还原为字节
+    const binaryString = atob(compressedText);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    // 解压缩字节
+    const decompressedBytes = await new Promise((resolve, reject) => {
+      try {
+        // 使用DecompressionStream API解压 (如果浏览器支持)
+        if (window.DecompressionStream) {
+          const ds = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          writer.write(bytes);
+          writer.close();
+          
+          return new Response(ds.readable)
+            .arrayBuffer()
+            .then(buffer => resolve(new Uint8Array(buffer)));
+        } else {
+          // 回退到pako库
+          if (window.pako) {
+            resolve(window.pako.inflate(bytes));
+          } else {
+            // 如果没有可用的解压方法，返回原始bytes
+            reject(new Error('没有可用的解压方法'));
+          }
+        }
+      } catch (error) {
+        console.error('解压失败，尝试直接解析文本:', error);
+        reject(error);
+      }
+    });
+    
+    // 转换回文本
+    const textDecoder = new TextDecoder();
+    const decompressedText = textDecoder.decode(decompressedBytes);
+    
+    console.log(`简历解压: ${compressedText.length} -> ${decompressedText.length} 字节`);
+    return decompressedText;
+  } catch (error) {
+    console.error('解压简历失败:', error);
+    // 解压失败时返回原始文本
+    return compressedText;
+  }
+}
+
 // 加载存储的数据
 function loadStoredData() {
-  chrome.storage.local.get(['resumeDataJson', 'resumeData', 'jdData', 'apiSettingsJson', 'apiKey', 'apiEndpoint', 'model'], (result) => {
-    // 加载简历数据 - 优先使用JSON格式
+  chrome.storage.local.get(['resumeDataJson', 'resumeData', 'jdData', 'apiSettingsJson', 'apiKey', 'apiEndpoint', 'model'], async (result) => {
+    // 处理简历数据
     let resumeDataObj = null;
     
     if (result.resumeDataJson) {
       try {
         resumeDataObj = JSON.parse(result.resumeDataJson);
-        console.log('从JSON加载简历数据成功');
+        
+        // 如果有压缩的简历文本，进行解压
+        if (resumeDataObj && resumeDataObj.compressedText) {
+          const decompressedText = await decompressResumeText(resumeDataObj.compressedText);
+          resumeDataObj.resumeText = decompressedText;
+        }
       } catch (error) {
-        console.error('解析简历数据JSON失败:', error);
+        console.error('解析resumeDataJson失败:', error);
       }
     }
     
-    // 如果JSON解析失败或不存在，使用旧格式
+    // 兼容旧版本的数据格式
     resumeDataObj = resumeDataObj || result.resumeData;
     
     if (resumeDataObj) {
       resumeData = resumeDataObj;
       updateResumeStatus(true, resumeDataObj.resumeText);
-      document.getElementById('resume-content').textContent = 
+      document.getElementById('resume-status').textContent = 
         `简历已加载: ${resumeDataObj.fileName || '手动输入的简历'}`;
     }
     
@@ -403,7 +527,7 @@ function checkCurrentPage() {
 }
 
 // 处理简历上传
-function handleResumeUpload(event) {
+async function handleResumeUpload(event) {
   const file = event.target.files[0];
   if (!file) {
     console.log('没有选择文件');
@@ -424,7 +548,7 @@ function handleResumeUpload(event) {
       
       const reader = new FileReader();
       
-      reader.onload = function(e) {
+      reader.onload = async function(e) {
         try {
           const text = e.target.result;
           console.log('TXT文件读取成功，长度:', text.length);
@@ -434,14 +558,23 @@ function handleResumeUpload(event) {
           // 存储简历数据
           const resumeData = {
             fileName: file.name,
+            fileSize: file.size,
             fileType: file.type,
+            uploadDate: new Date().toISOString(),
             resumeText: text,
-            uploadDate: new Date().toISOString()
+            compressedText: await compressResumeText(text) // 添加压缩文本
           };
           
           // 保存到本地存储 - 使用JSON格式
           chrome.storage.local.set({
-            resumeDataJson: JSON.stringify(resumeData)
+            resumeData: resumeData,
+            resumeDataJson: JSON.stringify({
+              fileName: resumeData.fileName,
+              fileSize: resumeData.fileSize,
+              fileType: resumeData.fileType,
+              uploadDate: resumeData.uploadDate,
+              compressedText: resumeData.compressedText // 只存储压缩文本
+            })
           }, () => {
             if (chrome.runtime.lastError) {
               console.error('保存简历失败:', chrome.runtime.lastError);
@@ -1196,7 +1329,7 @@ function initializeStylePrompts() {
 }
 
 // 修改简历文本提交函数
-function handleResumeTextSubmit() {
+async function handleResumeTextSubmit() {
   const textArea = document.getElementById('resume-text-input');
   const resumeText = textArea.value.trim();
   
@@ -1215,10 +1348,12 @@ function handleResumeTextSubmit() {
   try {
     // 存储简历数据
     const resumeData = {
-      fileName: '手动输入的简历.txt',
-      fileType: 'text/plain',
+      fileName: "手动输入的简历",
+      fileSize: resumeText.length,
+      fileType: "text/plain",
+      uploadDate: new Date().toISOString(),
       resumeText: resumeText,
-      uploadDate: new Date().toISOString()
+      compressedText: await compressResumeText(resumeText) // 添加压缩文本
     };
     
     // 更新进度
@@ -1226,7 +1361,14 @@ function handleResumeTextSubmit() {
     
     // 保存到本地存储 - 使用JSON格式
     chrome.storage.local.set({
-      resumeDataJson: JSON.stringify(resumeData)
+      resumeData: resumeData,
+      resumeDataJson: JSON.stringify({
+        fileName: resumeData.fileName,
+        fileSize: resumeData.fileSize,
+        fileType: resumeData.fileType,
+        uploadDate: resumeData.uploadDate,
+        compressedText: resumeData.compressedText // 只存储压缩文本
+      })
     }, () => {
       if (chrome.runtime.lastError) {
         console.error('保存简历失败:', chrome.runtime.lastError);
@@ -1780,7 +1922,7 @@ function factoryReset() {
 }
 
 /**
- * 导出所有设置到JSON文件
+ * 导出设置到JSON文件
  */
 function exportSettings() {
   try {
@@ -1799,7 +1941,7 @@ function exportSettings() {
       'apiEndpoint',
       'model',
       'stylePrompts'
-    ], (result) => {
+    ], async (result) => {
       // 创建导出对象
       const exportData = {
         version: getVersion(),
@@ -1851,11 +1993,19 @@ function exportSettings() {
       // 添加简历数据（如果选择包含）
       if (includeResume && result.resumeDataJson) {
         try {
-          exportData.settings.resume = JSON.parse(result.resumeDataJson);
-          // 移除可能的敏感信息
-          if (exportData.settings.resume) {
-            delete exportData.settings.resume.fileContent; // 删除文件内容
+          const resumeData = JSON.parse(result.resumeDataJson);
+          
+          // 导出原始resumeData对象
+          exportData.settings.resume = {...resumeData};
+          
+          // 确保包含压缩的简历文本
+          if (!exportData.settings.resume.compressedText && resumeData.resumeText) {
+            exportData.settings.resume.compressedText = await compressResumeText(resumeData.resumeText);
           }
+          
+          // 移除可能的敏感信息和冗余数据
+          delete exportData.settings.resume.fileContent; // 删除文件内容
+          delete exportData.settings.resume.resumeText; // 删除未压缩的文本内容，使用compressedText代替
         } catch (error) {
           console.error('解析简历数据JSON失败:', error);
         }
@@ -1898,7 +2048,7 @@ function exportSettings() {
  * 从JSON文件导入设置
  * @param {Event} event - 文件输入事件
  */
-function importSettings(event) {
+async function importSettings(event) {
   try {
     const file = event.target.files[0];
     if (!file) {
@@ -1916,7 +2066,7 @@ function importSettings(event) {
     console.log('开始导入设置...');
     
     const reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
       try {
         const importData = JSON.parse(e.target.result);
         
@@ -1953,7 +2103,44 @@ function importSettings(event) {
           
           // 导入简历数据（如果存在）
           if (importData.settings.resume) {
-            newSettings.resumeDataJson = JSON.stringify(importData.settings.resume);
+            // 处理简历数据
+            let resumeData = importData.settings.resume;
+            
+            // 如果有压缩的简历文本，则解压
+            if (resumeData.compressedText) {
+              const decompressedText = await decompressResumeText(resumeData.compressedText);
+              
+              // 创建完整的resumeData对象
+              resumeData = {
+                ...resumeData,
+                resumeText: decompressedText
+              };
+              
+              // 更新UI显示
+              updateResumeStatus(true, decompressedText);
+              
+              // 在内存中保存完整的resumeData对象
+              window.resumeData = resumeData;
+            }
+            
+            // 存储resumeData对象，包含压缩文本
+            newSettings.resumeDataJson = JSON.stringify({
+              fileName: resumeData.fileName || '导入的简历',
+              fileSize: resumeData.fileSize || (resumeData.resumeText ? resumeData.resumeText.length : 0),
+              fileType: resumeData.fileType || 'text/plain',
+              uploadDate: resumeData.uploadDate || new Date().toISOString(),
+              compressedText: resumeData.compressedText
+            });
+            
+            // 同时存储完整对象以兼容旧代码
+            newSettings.resumeData = {
+              fileName: resumeData.fileName || '导入的简历',
+              fileSize: resumeData.fileSize || (resumeData.resumeText ? resumeData.resumeText.length : 0),
+              fileType: resumeData.fileType || 'text/plain',
+              uploadDate: resumeData.uploadDate || new Date().toISOString(),
+              resumeText: resumeData.resumeText,
+              compressedText: resumeData.compressedText
+            };
           }
           
           // 保存到存储
@@ -1985,18 +2172,10 @@ function importSettings(event) {
       }
     };
     
-    reader.onerror = function() {
-      console.error('读取文件失败');
-      showToast('读取文件失败', 'error');
-    };
-    
     reader.readAsText(file);
-    
-    // 清空文件输入，以便可以重复导入同一个文件
-    event.target.value = '';
   } catch (error) {
     console.error('导入设置失败:', error);
-    showToast('导入设置失败: ' + error.message, 'error');
+    showToast('导入失败: ' + error.message, 'error');
   }
 }
 

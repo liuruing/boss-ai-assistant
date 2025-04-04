@@ -3,6 +3,104 @@
 // 导入环境配置（如果支持模块导入）
 // import { DEFAULT_MODEL, DEFAULT_API_KEY, DEFAULT_API_ENDPOINT } from '../lib/env.js';
 
+/**
+ * 从Chrome存储中加载配置
+ * @returns {Promise<Object>} - 配置对象
+ */
+async function loadAPIConfig() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get([
+      'apiSettingsJson', 
+      'apiKey', 
+      'apiEndpoint', 
+      'model'
+    ], (result) => {
+      let apiKey, apiEndpoint, model;
+      
+      // 优先使用JSON格式的API设置
+      if (result.apiSettingsJson) {
+        try {
+          const apiSettings = JSON.parse(result.apiSettingsJson);
+          apiKey = apiSettings.apiKey;
+          apiEndpoint = apiSettings.apiEndpoint;
+          model = apiSettings.model;
+        } catch (error) {
+          console.error('解析API设置失败:', error);
+        }
+      }
+      
+      // 回退到单独的键值
+      apiKey = apiKey || result.apiKey || window.DEFAULT_API_KEY || '';
+      apiEndpoint = apiEndpoint || result.apiEndpoint || window.DEFAULT_API_ENDPOINT || 'https://api.bailili.top';
+      model = model || result.model || window.DEFAULT_MODEL || 'claude-3-5-haiku-20241022';
+      
+      resolve({
+        apiKey,
+        apiEndpoint,
+        model
+      });
+    });
+  });
+}
+
+/**
+ * 解压缩简历文本
+ * @param {string} compressedText - 压缩的Base64文本
+ * @returns {Promise<string>} - 解压后的文本
+ */
+async function decompressResumeText(compressedText) {
+  try {
+    if (!compressedText) return '';
+    
+    // 判断是否是压缩的文本
+    if (!compressedText.match(/^[A-Za-z0-9+/]+=*$/)) {
+      // 如果不是Base64格式，可能是未压缩的文本
+      return compressedText;
+    }
+    
+    // 从Base64还原为字节
+    const binaryString = atob(compressedText);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    
+    // 解压缩字节
+    const decompressedBytes = await new Promise((resolve, reject) => {
+      try {
+        // 使用DecompressionStream API解压 (如果浏览器支持)
+        if (window.DecompressionStream) {
+          const ds = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          writer.write(bytes);
+          writer.close();
+          
+          return new Response(ds.readable)
+            .arrayBuffer()
+            .then(buffer => resolve(new Uint8Array(buffer)));
+        } else {
+          // 如果没有可用的解压方法，返回原始bytes
+          reject(new Error('没有可用的解压方法'));
+        }
+      } catch (error) {
+        console.error('解压失败，尝试直接解析文本:', error);
+        reject(error);
+      }
+    });
+    
+    // 转换回文本
+    const textDecoder = new TextDecoder();
+    const decompressedText = textDecoder.decode(decompressedBytes);
+    
+    console.log(`简历解压: ${compressedText.length} -> ${decompressedText.length} 字节`);
+    return decompressedText;
+  } catch (error) {
+    console.error('解压简历失败:', error);
+    // 解压失败时返回原始文本
+    return compressedText;
+  }
+}
+
 // 监听来自popup或content script的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background script received message:', request);
@@ -49,7 +147,7 @@ async function generateGreeting(data) {
     let resumeText = "我是一名求职者，对贵公司的岗位非常感兴趣";
     
     // 如果提供了简历数据，尝试解析
-    if (resumeData && resumeData.fileContent) {
+    if (resumeData) {
       try {
         // 更新进度
         if (typeof onProgress === 'function') {
@@ -59,6 +157,9 @@ async function generateGreeting(data) {
         // 如果已经有解析好的简历文本，直接使用
         if (resumeData.resumeText) {
           resumeText = resumeData.resumeText;
+        } else if (resumeData.compressedText) {
+          // 如果有压缩的文本，解压后使用
+          resumeText = await decompressResumeText(resumeData.compressedText);
         } else {
           // 实际的PDF解析逻辑应该放在这里
           resumeText = `我已上传了简历: ${resumeData.fileName}，我对贵公司的岗位非常感兴趣`;
@@ -73,20 +174,31 @@ async function generateGreeting(data) {
       }
     }
     
-    // 根据不同风格设置提示词
-    let promptStyle = "";
-    switch (style) {
-      case 'professional':
-        promptStyle = "请使用专业、正式的语言风格";
-        break;
-      case 'enthusiastic':
-        promptStyle = "请使用热情、积极的语言风格";
-        break;
-      case 'concise':
-        promptStyle = "请使用简洁、直接的语言风格，控制在100字以内";
-        break;
-      default:
-        promptStyle = "请使用专业的语言风格";
+    // 加载风格配置
+    let stylePrompts = [];
+    try {
+      const result = await new Promise(resolve => 
+        chrome.storage.local.get(['stylePromptsJson', 'stylePrompts'], resolve)
+      );
+      
+      if (result.stylePromptsJson) {
+        stylePrompts = JSON.parse(result.stylePromptsJson);
+      } else {
+        stylePrompts = result.stylePrompts || window.DEFAULT_STYLE_PROMPTS;
+      }
+    } catch (error) {
+      console.error('加载风格配置失败:', error);
+      // 使用默认风格
+      stylePrompts = window.DEFAULT_STYLE_PROMPTS;
+    }
+    
+    // 根据风格ID查找对应的风格提示词
+    const selectedStyle = stylePrompts.find(s => s.id === style) || stylePrompts[0];
+    let promptStyle = selectedStyle.prompt;
+    
+    if (!promptStyle) {
+      // 默认风格提示词
+      promptStyle = "请使用专业的语言风格，突出我的专业能力和经验";
     }
     
     // 更新进度
@@ -97,7 +209,7 @@ async function generateGreeting(data) {
     // 构建完整提示词
     const prompt = `
       你是一位求职者，需要给招聘方发送一条打招呼语。
-      ${promptStyle}。
+      ${promptStyle}
       
       岗位描述:
       ${jobDescription}
@@ -114,8 +226,11 @@ async function generateGreeting(data) {
       onProgress(60, '正在生成打招呼语...');
     }
     
+    // 获取API配置
+    const config = await loadAPIConfig();
+    
     // 调用Azure OpenAI API
-    const response = await callAzureOpenAI(prompt, settings);
+    const response = await callAzureOpenAI(prompt, config);
     
     // 更新进度
     if (typeof onProgress === 'function') {
@@ -141,11 +256,11 @@ async function generateGreeting(data) {
 }
 
 // 调用OpenAI API
-async function callAzureOpenAI(prompt, settings) {
-  // 从全局变量获取默认值，这样就和env.js中保持一致
-  const apiKey = settings?.apiKey || window.DEFAULT_API_KEY || "";
-  const baseUrl = settings?.apiEndpoint || window.DEFAULT_API_ENDPOINT || "https://api.bailili.top";
-  const model = settings?.model || window.DEFAULT_MODEL || "claude-3-5-haiku-20241022";
+async function callAzureOpenAI(prompt, config) {
+  // 使用传入的配置或从存储加载
+  const apiKey = config.apiKey || (await loadAPIConfig()).apiKey;
+  const baseUrl = config.apiEndpoint || (await loadAPIConfig()).apiEndpoint;
+  const model = config.model || (await loadAPIConfig()).model;
   
   try {
     const url = `${baseUrl}/v1/chat/completions`;
@@ -193,11 +308,16 @@ chrome.runtime.onInstalled.addListener(details => {
     const version = chrome.runtime.getManifest().version;
     console.log(`Boss直聘AI助手 v${version} 已安装`);
     
-    // 从全局变量获取默认配置
-    chrome.storage.local.set({
-      defaultApiEndpoint: window.DEFAULT_API_ENDPOINT || 'https://api.bailili.top',
-      defaultApiKey: window.DEFAULT_API_KEY || '',
-      defaultModel: window.DEFAULT_MODEL || 'claude-3-5-haiku-20241022'
+    // 加载配置并保存默认值
+    loadAPIConfig().then(config => {
+      // 保存默认配置
+      chrome.storage.local.set({
+        apiSettingsJson: JSON.stringify({
+          apiKey: config.apiKey,
+          apiEndpoint: config.apiEndpoint,
+          model: config.model
+        })
+      });
     });
     
     // 打开欢迎页面或设置页面
