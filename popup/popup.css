@@ -488,45 +488,32 @@ footer {
   box-shadow: 0 0 0 2px rgba(30,136,229,0.2);
 }
 
-/* 风格选择圆点样式 */
-.style-dots-container {
+/* 风格选择器的新样式 - 替换原来的风格圆点 */
+.style-ids-container {
   display: flex;
   justify-content: space-between;
   margin: 20px 0;
   padding: 0 20px;
 }
 
-.style-dot {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+.style-id-btn {
+  padding: 8px 15px;
+  border-radius: 4px;
+  border: 1px solid #ddd;
+  background-color: #f5f5f5;
   cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
+  font-size: 14px;
+  transition: all 0.2s;
 }
 
-.style-dot:hover {
-  transform: scale(1.1);
+.style-id-btn:hover {
+  background-color: #e0e0e0;
 }
 
-.style-dot.active {
-  box-shadow: 0 0 0 3px #fff, 0 0 0 6px currentColor;
-}
-
-/* 圆点对应的风格颜色 */
-.style-dot[data-index="0"] {
-  background-color: #1e88e5; /* 专业蓝 */
-}
-
-.style-dot[data-index="1"] {
-  background-color: #ffb300; /* 热情黄 */
-}
-
-.style-dot[data-index="2"] {
-  background-color: #757575; /* 简洁灰 */
-}
-
-.style-dot[data-index="3"] {
-  background-color: #7cb342; /* 友好绿 */
+.style-id-btn.active {
+  background-color: #1e88e5;
+  color: white;
+  border-color: #1565c0;
 }
 
 /* 开关样式 */

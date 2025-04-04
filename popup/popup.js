@@ -142,11 +142,11 @@ function initUI() {
   // 添加恢复默认按钮事件监听
   document.getElementById('reset-styles-btn')?.addEventListener('click', resetStylePrompts);
   
-  // 设置风格圆点点击事件
-  document.querySelectorAll('.style-dot').forEach(dot => {
-    dot.addEventListener('click', function() {
+  // 设置风格ID按钮点击事件
+  document.querySelectorAll('.style-id-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
       // 移除所有活动状态
-      document.querySelectorAll('.style-dot').forEach(d => d.classList.remove('active'));
+      document.querySelectorAll('.style-id-btn').forEach(d => d.classList.remove('active'));
       // 添加当前活动状态
       this.classList.add('active');
       
@@ -1523,61 +1523,51 @@ function safeSetClassName(id, className) {
 
 // 设置风格名称双击编辑功能
 function setupStyleNameEditing() {
-  const styleNameElement = document.getElementById('current-style-name');
-  if (!styleNameElement) {
+  const nameElement = document.getElementById('current-style-name');
+  if (!nameElement) {
     console.error('找不到风格名称元素');
     return;
   }
   
-  // 双击开始编辑
-  styleNameElement.addEventListener('dblclick', function() {
+  nameElement.addEventListener('dblclick', function() {
     const currentText = this.textContent;
-    this.classList.add('editing');
+    // 保留风格ID信息
+    const styleId = currentText.match(/\(([^)]+)\)/);
+    const styleIdText = styleId ? styleId[0] : '';
+    const nameOnly = styleId ? currentText.replace(styleId[0], '').trim() : currentText;
     
     // 创建输入框
+    this.innerHTML = '';
     const input = document.createElement('input');
     input.type = 'text';
-    input.value = currentText;
-    input.style.cssText = `
-      width: 100%;
-      padding: 7px;
-      border: 1px solid #1e88e5;
-      border-radius: 4px;
-      font-size: 14px;
-      box-sizing: border-box;
-    `;
+    input.value = nameOnly;
+    input.className = 'style-name-edit';
+    input.style.width = '80%';
     
-    // 替换文本为输入框
-    this.textContent = '';
-    this.appendChild(input);
-    input.focus();
-    
-    // 处理输入框失焦或回车事件
-    function finishEditing() {
-      const newName = input.value.trim();
-      if (newName) {
-        styleNameElement.textContent = newName;
-      } else {
-        styleNameElement.textContent = currentText;
-      }
-      styleNameElement.classList.remove('editing');
-    }
-    
-    input.addEventListener('blur', finishEditing);
+    // 添加回车键保存功能
     input.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') {
-        finishEditing();
-        e.preventDefault();
-      } else if (e.key === 'Escape') {
-        styleNameElement.textContent = currentText;
-        styleNameElement.classList.remove('editing');
-        e.preventDefault();
+        const newName = this.value.trim();
+        nameElement.textContent = newName + (styleIdText ? ' ' + styleIdText : '');
+        nameElement.classList.remove('editing');
       }
     });
+    
+    // 添加失焦保存功能
+    input.addEventListener('blur', function() {
+      const newName = this.value.trim();
+      nameElement.textContent = newName + (styleIdText ? ' ' + styleIdText : '');
+      nameElement.classList.remove('editing');
+    });
+    
+    this.appendChild(input);
+    this.classList.add('editing');
+    input.focus();
+    input.select();
   });
 }
 
-// 修改 loadAndDisplayStylePrompts 函数，在更新显示后设置编辑功能
+// 修改 loadAndDisplayStylePrompts 函数，仅显示风格ID
 function loadAndDisplayStylePrompts() {
   chrome.storage.local.get(['stylePrompts'], function(result) {
     const stylePrompts = result.stylePrompts;
@@ -1591,11 +1581,9 @@ function loadAndDisplayStylePrompts() {
     const currentStyle = stylePrompts[currentIndex];
     
     if (currentStyle) {
-      document.getElementById('current-style-name').textContent = currentStyle.name;
+      // 只显示风格ID，不显示名称
+      document.getElementById('current-style-name').textContent = currentStyle.id;
       document.getElementById('current-style-prompt').value = currentStyle.prompt;
-      
-      // 设置双击编辑功能
-      setupStyleNameEditing();
     }
   });
 }
@@ -1664,7 +1652,7 @@ function saveStylePrompts() {
   });
 }
 
-// 更新主界面的风格选择下拉菜单 - 修改为接受stylePrompts参数
+// 更新主界面的风格选择下拉菜单 - 修改为仅显示风格ID
 function updateMessageStyleSelector(stylePrompts) {
   // 如果没有提供stylePrompts，则从存储中获取
   if (!stylePrompts) {
@@ -1691,11 +1679,11 @@ function updateMessageStyleSelector(stylePrompts) {
     // 清空下拉菜单
     styleSelector.innerHTML = '';
     
-    // 添加所有风格选项
+    // 添加所有风格选项，只显示风格ID
     prompts.forEach(style => {
       const option = document.createElement('option');
       option.value = style.id;
-      option.textContent = style.name;
+      option.textContent = style.id;
       styleSelector.appendChild(option);
     });
     

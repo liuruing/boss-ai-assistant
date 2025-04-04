@@ -384,10 +384,10 @@
       <div style="margin-bottom: 10px;">
         <label for="message-style" style="font-size: 14px; margin-right: 10px;">风格:</label>
         <select id="message-style" style="padding: 5px; border-radius: 10px; border: 1px solid #ddd;">
-          <option value="style1">专业正式</option>
-          <option value="style2">热情积极</option>
-          <option value="style3">简洁明了</option>
-          <option value="style4">友好亲切</option>
+          <option value="style1">style1</option>
+          <option value="style2">style2</option>
+          <option value="style3">style3</option>
+          <option value="style4">style4</option>
         </select>
         <!-- 添加风格提示词预览 -->
         <span id="style-preview" style="margin-left: 10px; font-size: 12px; color: #666; font-style: italic;"></span>
@@ -536,22 +536,22 @@
       <div id="styles-tab" class="settings-tab-content" style="display: none;">
         <h4 style="margin: 10px 0;">自定义风格设置</h4>
         <p style="font-size: 12px; color: #666; margin-bottom: 15px;">
-          您可以自定义四个风格的名称和提示词，点击圆点选择要编辑的风格。
+          您可以自定义四个风格的提示词，点击风格ID选择要编辑的风格。
         </p>
         
-        <!-- 风格选择圆点 -->
-        <div class="style-dots-container">
-          <div class="style-dot" data-index="0" style="background-color: #1e88e5;"></div>
-          <div class="style-dot" data-index="1" style="background-color: #ffb300;"></div>
-          <div class="style-dot" data-index="2" style="background-color: #757575;"></div>
-          <div class="style-dot" data-index="3" style="background-color: #7cb342;"></div>
+        <!-- 替换风格选择圆点为风格ID选择器 -->
+        <div class="style-ids-container">
+          <button class="style-id-btn active" data-index="0">style1</button>
+          <button class="style-id-btn" data-index="1">style2</button>
+          <button class="style-id-btn" data-index="2">style3</button>
+          <button class="style-id-btn" data-index="3">style4</button>
         </div>
         
         <!-- 当前编辑的风格 -->
         <div class="style-item">
           <div class="form-group">
-            <label>风格名称: <span class="hint">(双击可编辑)</span></label>
-            <div id="current-style-name" class="editable-style-name" title="双击修改名称" data-index="0">加载中...</div>
+            <label>风格ID:</label>
+            <div id="current-style-name" class="editable-style-name" data-index="0">加载中...</div>
           </div>
           <div class="form-group">
             <label for="current-style-prompt">提示词:</label>
