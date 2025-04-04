@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>思考标签移除测试</title>
+  <style>
+    body {
+      font-family: 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f7fa;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #1e88e5;
+    }
+    .container {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+    }
+    .panel {
+      flex: 1;
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    textarea {
+      width: 100%;
+      height: 350px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 14px;
+      margin-bottom: 10px;
+      resize: none;
+    }
+    button {
+      background-color: #1e88e5;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 15px;
+      margin-bottom: 10px;
+      display: block;
+      width: 100%;
+    }
+    button:hover {
+      background-color: #1565c0;
+    }
+    .info {
+      font-size: 12px;
+      color: #666;
+      margin-top: 10px;
+    }
+    .stats {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .example-btn {
+      background-color: #78909c;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h1>移除思考标签测试工具</h1>
+  
+  <div class="container">
+    <div class="panel">
+      <h2>输入文本（包含&lt;think&gt;标签）</h2>
+      <div class="stats" id="input-stats">字符数: 0</div>
+      <textarea id="input-text" placeholder="请在此输入包含<think>...</think>标签的文本..."></textarea>
+      <button id="process-btn">处理文本 ➡️</button>
+      <button id="example-btn" class="example-btn">加载示例</button>
+      <div class="info">
+        此工具用于测试移除&lt;think&gt;...&lt;/think&gt;标签的功能。
+      </div>
+    </div>
+    
+    <div class="panel">
+      <h2>处理结果（移除标签后）</h2>
+      <div class="stats" id="output-stats">字符数: 0</div>
+      <textarea id="output-text" placeholder="处理后的文本将显示在这里..." readonly></textarea>
+      <button id="copy-btn">复制结果</button>
+      <div class="info" id="result-info"></div>
+    </div>
+  </div>
+
+  <script>
+    // 移除思考标签函数
+    function removeThinkTags(text) {
+      if (!text) return "";
+      
+      // 移除<think>...</think>标签及其内容
+      return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    }
+    
+    // 示例文本
+    const exampleText = `<think>
+首先，我需要分析职位描述和求职者简历，找出匹配度最高的核心技能和经验，然后创建一条简洁专业的打招呼语。
+
+职位描述关键点：
+1. AI大模型方向项目开发、维护和升级
+2. 使用Java编程语言
+3. 需要有大模型应用相关项目开发经验
+4. 熟悉Spring、Spring Boot、SpringCloud等框架
+5. 熟悉大模型工程化部署和优化
+6. 有模型调优经验（如RAG等）
+
+求职者简历亮点：
+1. Java开发经验，熟悉Spring、Spring Boot、Spring Cloud等框架
+2. 有AI模型工程师经验，参与过安心大模型需求分析
+3. 使用LangChain参与模型调优
+4. 有抖音短视频项目中的AI模块实现经验（OpenAI API情感分析）
+5. 熟悉并发编程、JVM、数据库等技术
+
+最匹配的核心技能和经验：
+1. Java开发技能与Spring生态系统经验
+2. AI模型调优经验（使用LangChain）
+3. 大模型应用开发经验
+
+现在，我将创建一条不超过80字的打招呼语，直接使用"您好"开头，突出核心匹配点，表达对岗位的兴趣，语言精炼专业但略带口语化：
+</think>
+
+您好，具备Java全栈开发和AI模型调优经验，曾使用LangChain参与大模型优化，并在实际项目中实现OpenAI API情感分析功能。对贵公司AI大模型方向的开发岗位非常感兴趣，期待有机会贡献所长。`;
+    
+    // DOM元素引用
+    const inputText = document.getElementById('input-text');
+    const outputText = document.getElementById('output-text');
+    const processBtn = document.getElementById('process-btn');
+    const copyBtn = document.getElementById('copy-btn');
+    const exampleBtn = document.getElementById('example-btn');
+    const inputStats = document.getElementById('input-stats');
+    const outputStats = document.getElementById('output-stats');
+    const resultInfo = document.getElementById('result-info');
+    
+    // 处理文本
+    function processText() {
+      const input = inputText.value;
+      const output = removeThinkTags(input);
+      
+      outputText.value = output;
+      
+      // 更新统计信息
+      updateStats();
+      
+      // 显示移除信息
+      const removedChars = input.length - output.length;
+      resultInfo.textContent = `已移除 ${removedChars} 个字符 (${Math.round(removedChars/input.length*100)}% 的内容)`;
+    }
+    
+    // 更新统计信息
+    function updateStats() {
+      inputStats.textContent = `字符数: ${inputText.value.length}`;
+      outputStats.textContent = `字符数: ${outputText.value.length}`;
+    }
+    
+    // 复制结果
+    function copyResult() {
+      outputText.select();
+      document.execCommand('copy');
+      
+      // 显示复制成功
+      const originalText = copyBtn.textContent;
+      copyBtn.textContent = '✓ 已复制!';
+      setTimeout(() => {
+        copyBtn.textContent = originalText;
+      }, 2000);
+    }
+    
+    // 加载示例
+    function loadExample() {
+      inputText.value = exampleText;
+      updateStats();
+      processText();
+    }
+    
+    // 事件监听
+    processBtn.addEventListener('click', processText);
+    copyBtn.addEventListener('click', copyResult);
+    exampleBtn.addEventListener('click', loadExample);
+    inputText.addEventListener('input', updateStats);
+  </script>
+</body>
+</html> 

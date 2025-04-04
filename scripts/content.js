@@ -572,9 +572,22 @@ function calculateJobHash(jdText) {
   return hash.toString(16);
 }
 
+// 辅助函数: 移除思考过程标签
+function removeThinkTags(text) {
+  if (!text) return "";
+  
+  // 移除<think>...</think>标签及其内容
+  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
 // 修改函数声明，添加async关键字
 async function generateGreetingForCurrentJob(jdData, resumeData) {
   console.log('开始为当前岗位生成打招呼语...');
+  
+  if (!jdData) {
+    console.error('缺少岗位JD，无法生成打招呼语');
+    return;
+  }
   
   // 确保resumeData有resumeText字段
   if (resumeData.compressedText && !resumeData.resumeText) {
@@ -660,7 +673,10 @@ async function generateGreetingForCurrentJob(jdData, resumeData) {
         throw new Error('API返回数据格式错误');
       }
       
-      const generatedText = data.choices[0].message.content.trim();
+      let generatedText = data.choices[0].message.content.trim();
+      // 移除思考过程标签
+      generatedText = removeThinkTags(generatedText);
+      
       console.log('打招呼语生成成功:', generatedText.substring(0, 30) + '...');
       
       // 保存生成的打招呼语
@@ -1652,7 +1668,10 @@ function generateGreetingForJob(jobId, jdData, resumeData) {
             throw new Error('API返回数据格式错误');
           }
           
-          const generatedText = data.choices[0].message.content;
+          let generatedText = data.choices[0].message.content;
+          // 移除思考过程标签
+          generatedText = removeThinkTags(generatedText);
+          
           console.log('生成的打招呼语:', generatedText.substring(0, 100) + '...');
           
           // 存储到岗位打招呼语映射中

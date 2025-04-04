@@ -751,6 +751,14 @@ function sendMessageWithRetry(tabId, message, maxRetries = 3, delay = 500) {
   });
 }
 
+// 辅助函数: 移除思考过程标签
+function removeThinkTags(text) {
+  if (!text) return "";
+  
+  // 移除<think>...</think>标签及其内容
+  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
 // 修改生成打招呼语函数，添加重试功能
 function generateGreeting(retryCount = 0) {
   const maxRetries = 1; // 最大重试次数
@@ -778,209 +786,81 @@ function generateGreeting(retryCount = 0) {
   // 获取选择的风格
   const styleId = document.getElementById('message-style').value;
   
-  // 从存储中获取对应的提示词
-  chrome.storage.local.get(['stylePrompts'], async function(result) {
-    const stylePrompts = result.stylePrompts || DEFAULT_STYLE_PROMPTS;
-    const selectedStyle = stylePrompts.find(style => style.id === styleId) || stylePrompts[0];
+  // 构造发送给后台的数据
+  const dataToSend = {
+    jobDescription: jdData,
+    resumeData: resumeData,
+    style: styleId,
+    onProgress: (percent, message, isError) => {
+      // 这个回调无法直接传递给后台，但我们会通过其他方式更新进度
+      console.log(`生成进度: ${percent}% - ${message}`);
+    }
+  };
+  
+  console.log('正在生成打招呼语，使用风格:', styleId);
+  updateMessageProgress(30, '正在分析简历与岗位匹配度...');
+  
+  // 调用后台脚本生成打招呼语
+  chrome.runtime.sendMessage({
+    action: 'generateGreeting',
+    data: dataToSend
+  }, response => {
+    if (chrome.runtime.lastError) {
+      console.error('发送消息失败:', chrome.runtime.lastError);
+      handleGreetingError('与后台脚本通信失败', retryCount);
+      return;
+    }
     
-    // 构建提示词
-    const prompt = `
-      职位描述: ${jdData}
+    if (response && response.success) {
+      updateMessageProgress(100, '生成完成!');
       
-      我的简历: ${resumeData.resumeText}
+      // 获取生成的打招呼语并移除思考过程标签
+      let greeting = response.greeting;
+      greeting = removeThinkTags(greeting);
       
-      风格要求: ${selectedStyle.prompt}
+      // 显示生成的打招呼语
+      messageContent.value = greeting;
       
-      请根据我的简历和职位描述，生成一段打招呼语，帮助我与招聘者建立联系。
-    `;
-    
-    console.log('生成打招呼语，提示词长度:', prompt.length);
-    updateMessageProgress(20, '正在连接API...');
-    
-    // 获取API配置 - 使用JSON格式存储的配置
-    chrome.storage.local.get(['apiSettingsJson', 'apiKey', 'apiEndpoint'], (result) => {
-      let apiKey, apiEndpoint, model;
+      // 启用发送按钮
+      document.getElementById('send-btn').disabled = false;
       
-      // 尝试从JSON中读取
-      if (result.apiSettingsJson) {
-        try {
-          const apiSettings = JSON.parse(result.apiSettingsJson);
-          apiKey = apiSettings.apiKey;
-          apiEndpoint = apiSettings.apiEndpoint;
-          model = apiSettings.model;
-          console.log('从JSON加载API设置成功');
-        } catch (error) {
-          console.error('解析API设置JSON失败:', error);
-        }
-      }
-      
-      // 如果JSON解析失败或不存在，使用旧格式或默认值
-      apiKey = apiKey || result.apiKey || DEFAULT_API_KEY;
-      apiEndpoint = apiEndpoint || result.apiEndpoint || DEFAULT_API_ENDPOINT;
-      model = model || window.DEFAULT_MODEL || DEFAULT_MODEL;
-      
-      console.log('使用模型:', model, '，API端点:', apiEndpoint);
-      updateMessageProgress(30, '正在发送请求...');
-      
-      // 创建API请求体
-      const requestBody = {
-        model: model, // 使用从存储获取的模型名称
-        messages: [
-          {
-            role: "system",
-            content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 800
-      };
-      
-      // 在调试模式下显示API请求内容
-      if (DEBUG_MODE) {
-        showDebugPopup('API请求内容', {
-          endpoint: apiEndpoint,
-          model: model, // 显示当前使用的模型
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey.substring(0, 5)}...${apiKey.substring(apiKey.length - 5)}`
-          },
-          body: requestBody
-        });
-      }
-      
-      // 添加超时处理
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('请求超时，正在重试...')), 30000)
-      );
-      
-      // 调用API - 使用从存储中获取的模型
-      const fetchPromise = fetch(`${apiEndpoint}/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(requestBody)
+      // 缓存生成的打招呼语
+      chrome.storage.local.set({ 
+        messageContent: greeting,
+        cachedGreeting: greeting
       });
       
-      // 使用Promise.race来处理超时
-      Promise.race([fetchPromise, timeoutPromise])
-        .then(response => {
-          if (!response.ok) {
-            updateMessageProgress(50, `API响应错误: ${response.status}`, true);
-            console.error('API响应错误:', response.status, response.statusText);
-            throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
-          }
-          updateMessageProgress(60, '正在处理响应...');
-          return response.json();
-        })
-        .then(data => {
-          console.log('API响应成功:', data);
-          updateMessageProgress(80, '生成完成，正在处理结果...');
-          
-          // 在调试模式下显示API响应内容
-          if (DEBUG_MODE) {
-            showDebugPopup('API响应内容', data);
-          }
-          
-          if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-            throw new Error('API返回数据格式错误');
-          }
-          
-          const generatedText = data.choices[0].message.content;
-          messageContent.value = generatedText;
-          messageContent.placeholder = '生成的打招呼语将显示在这里...';
-          updateMessageProgress(100, '生成完成!');
-          
-          // 保存生成的内容到存储 - 同时保存为当前岗位的打招呼语
-          chrome.storage.local.get(['currentJobId', 'jobGreetings'], (result) => {
-            // 保存通用打招呼语
-            chrome.storage.local.set({messageContent: generatedText}, () => {
-              console.log('已保存打招呼语到存储');
-              
-              // 如果有当前岗位ID，也保存为该岗位的专用打招呼语
-              if (result.currentJobId) {
-                const jobGreetings = result.jobGreetings || {};
-                jobGreetings[result.currentJobId] = generatedText;
-                
-                chrome.storage.local.set({jobGreetings: jobGreetings}, () => {
-                  console.log('已保存为当前岗位的打招呼语:', result.currentJobId);
-                });
-              }
-              
-              // 通知内容脚本更新按钮状态
-              chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
-                if (tabs[0]) {
-                  try {
-                    chrome.tabs.sendMessage(tabs[0].id, {
-                      action: 'updateQuickSendButton',
-                      isGenerated: true
-                    }, response => {
-                      // 处理可能的错误
-                      if (chrome.runtime.lastError) {
-                        console.warn('更新按钮消息发送失败:', chrome.runtime.lastError.message);
-                      }
-                    });
-                  } catch (err) {
-                    console.error('发送消息时出错:', err);
-                  }
-                }
-              });
-            });
-          });
-          
-          // 3秒后隐藏进度条
-          setTimeout(() => {
-            progressContainer.classList.add('hidden');
-          }, 3000);
-          
-          // 启用发送按钮
-          const sendBtn = document.getElementById('send-btn');
-          if (generatedText.length >= 5) {
-            sendBtn.disabled = false;
-            sendBtn.title = '发送打招呼语';
-            sendBtn.style.opacity = '1';
-          }
-        })
-        .catch(error => {
-          console.error('生成打招呼语时出错:', error);
-          
-          // 检查是否是超时错误，并且未超过最大重试次数
-          if (error.message.includes('超时') && retryCount < maxRetries) {
-            console.log(`请求超时，正在进行第 ${retryCount + 1} 次重试...`);
-            updateMessageProgress(40, `请求超时，正在重试 (${retryCount + 1}/${maxRetries})...`);
-            
-            // 延迟1秒后重试
-            setTimeout(() => {
-              generateGreeting(retryCount + 1);
-            }, 1000);
-            return;
-          }
-          
-          updateMessageProgress(100, `生成失败: ${error.message}`, true);
-          
-          // 在调试模式下显示错误信息
-          if (DEBUG_MODE) {
-            showDebugPopup('API错误', {
-              error: error.message,
-              stack: error.stack
-            });
-          }
-          
-          // 显示错误信息
-          messageContent.value = `生成失败: ${error.message}\n\n请检查API设置或网络连接。`;
-          
-          // 10秒后隐藏进度条
-          setTimeout(() => {
-            progressContainer.classList.add('hidden');
-          }, 10000);
-        });
-    });
+      // 3秒后隐藏进度条
+      setTimeout(() => {
+        progressContainer.classList.add('hidden');
+      }, 3000);
+    } else {
+      const errorMessage = response ? response.error : '未知错误';
+      handleGreetingError(errorMessage, retryCount);
+    }
   });
+  
+  // 定义处理错误的辅助函数
+  function handleGreetingError(errorMessage, currentRetry) {
+    console.error('生成打招呼语失败:', errorMessage);
+    
+    if (currentRetry < maxRetries) {
+      console.log(`重试 (${currentRetry + 1}/${maxRetries})...`);
+      updateMessageProgress(30, `重试中 (${currentRetry + 1}/${maxRetries})...`);
+      
+      // 延迟1秒后重试
+      setTimeout(() => {
+        generateGreeting(currentRetry + 1);
+      }, 1000);
+    } else {
+      updateMessageProgress(100, `生成失败: ${errorMessage}`, true);
+      
+      // 5秒后隐藏进度条
+      setTimeout(() => {
+        progressContainer.classList.add('hidden');
+      }, 5000);
+    }
+  }
 }
 
 // 从简历文本中提取姓名

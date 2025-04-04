@@ -101,6 +101,18 @@ async function decompressResumeText(compressedText) {
   }
 }
 
+/**
+ * 移除文本中的思考过程标签
+ * @param {string} text - 原始文本
+ * @returns {string} - 处理后的文本
+ */
+function removeThinkTags(text) {
+  if (!text) return "";
+  
+  // 移除<think>...</think>标签及其内容
+  return text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+}
+
 // 监听来自popup或content script的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Background script received message:', request);
@@ -294,7 +306,9 @@ async function callAzureOpenAI(prompt, config) {
     }
     
     const data = await response.json();
-    return data.choices[0].message.content.trim();
+    const generatedText = data.choices[0].message.content.trim();
+    // 处理文本，移除thinking标签
+    return removeThinkTags(generatedText);
   } catch (error) {
     console.error('API调用失败:', error);
     throw error;
