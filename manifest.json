@@ -10,8 +10,7 @@
     "downloads"
   ],
   "host_permissions": [
-    "https://www.zhipin.com/*",
-    "http://127.0.0.1:48000/*"
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup/popup.html",
