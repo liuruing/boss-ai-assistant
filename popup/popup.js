@@ -805,17 +805,40 @@ function generateGreeting(retryCount = 0) {
     action: 'generateGreeting',
     data: dataToSend
   }, response => {
+    // --- Debug popup for communication error ---
     if (chrome.runtime.lastError) {
       console.error('发送消息失败:', chrome.runtime.lastError);
+      // 在调试模式下显示通信错误
+      if (DEBUG_MODE) {
+        showDebugPopup('打招呼语生成错误 (通信)', { error: chrome.runtime.lastError.message });
+      }
       handleGreetingError('与后台脚本通信失败', retryCount);
       return;
     }
-    
+
+    // --- Debug popups for request and response details ---
+    if (DEBUG_MODE) {
+       // 显示请求详情（如果存在）
+       if (response && response.requestDetails) {
+           showDebugPopup('打招呼语生成请求 (脱敏)', response.requestDetails);
+       }
+       // 显示响应详情或错误详情（如果存在）
+       if (response && response.responseDetails) {
+           const popupTitle = response.success ? '打招呼语生成响应' : '打招呼语生成错误';
+           showDebugPopup(popupTitle, response.responseDetails);
+       }
+       // 如果没有详细信息，显示原始响应体
+       else if (response) {
+            showDebugPopup('打招呼语生成原始响应', response);
+       }
+    }
+
     if (response && response.success) {
       updateMessageProgress(100, '生成完成!');
       
       // 获取生成的打招呼语并移除思考过程标签
-      let greeting = response.greeting;
+      // 注意：现在后台返回的是 generatedText 而不是 greeting
+      let greeting = response.generatedText || '';
       greeting = removeThinkTags(greeting);
       
       // 显示生成的打招呼语

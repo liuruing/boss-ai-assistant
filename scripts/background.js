@@ -120,19 +120,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'generateGreeting') {
     // 调用OpenAI API生成打招呼语
     generateGreeting(request.data)
-      .then(greeting => {
-        sendResponse({
-          success: true,
-          greeting: greeting
-        });
-      })
-      .catch(error => {
-        console.error('生成打招呼语失败:', error);
-        sendResponse({
-          success: false,
-          error: error.message
-        });
-      });
+       .then(result => {
+         // 直接将 callAzureOpenAI 返回的包含 request/response 详情的对象发送回去
+          sendResponse(result);
+       })
+       .catch(error => {
+         // 这个 catch 理论上不应该被触发，因为 callAzureOpenAI 内部处理了错误
+         // 但为了保险起见，还是加上
+          console.error('在 generateGreeting 消息处理中捕获到意外错误:', error);
+          sendResponse({
+            success: false,
+            error: error.message,
+             // 如果错误对象包含详情，则传递
+            requestDetails: error.requestDetails,
+            responseDetails: error.responseDetails || { error: error.message, stack: error.stack }
+          });
+       });
     
     return true; // 表示将异步发送响应
   } else if (request.action === 'updateJobInfo') {
@@ -141,8 +144,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       currentJobInfo: request.data
     }, () => {
       console.log('职位信息已保存到本地存储');
+       sendResponse({success: true}); // 添加响应
     });
+     return true; // 异步
   }
+   // 为所有未处理的消息提供默认响应
+   // sendResponse({success: false, error: '未知的消息类型'});
+   // return false; // 同步返回
 });
 
 // 生成打招呼语
@@ -174,7 +182,7 @@ async function generateGreeting(data) {
           resumeText = await decompressResumeText(resumeData.compressedText);
         } else {
           // 实际的PDF解析逻辑应该放在这里
-          resumeText = `我已上传了简历: ${resumeData.fileName}，我对贵公司的岗位非常感兴趣`;
+          resumeText = `我已上传了简历: ${resumeData.fileName || '未知文件'}，我对贵公司的岗位非常感兴趣`;
         }
       } catch (e) {
         console.error('解析简历失败:', e);
@@ -206,7 +214,7 @@ async function generateGreeting(data) {
     
     // 根据风格ID查找对应的风格提示词
     const selectedStyle = stylePrompts.find(s => s.id === style) || stylePrompts[0];
-    let promptStyle = selectedStyle.prompt;
+    let promptStyle = selectedStyle.prompt || "请使用专业的语言风格，突出我的专业能力和经验";
     
     if (!promptStyle) {
       // 默认风格提示词
@@ -241,15 +249,18 @@ async function generateGreeting(data) {
     // 获取API配置
     const config = await loadAPIConfig();
     
-    // 调用Azure OpenAI API
-    const response = await callAzureOpenAI(prompt, config);
+    // 调用Azure OpenAI API - 现在它会返回包含详情的对象
+    const result = await callAzureOpenAI(prompt, config);
     
-    // 更新进度
     if (typeof onProgress === 'function') {
-      onProgress(90, '打招呼语生成完成!');
+       if (result.success) {
+          onProgress(90, '打招呼语生成完成!');
+       } else {
+           onProgress(90, `生成失败: ${result.error?.message || '未知错误'}`, true);
+       }
     }
     
-    return response;
+    return result; // 将包含详情的 result 对象返回给消息监听器
   } catch (error) {
     console.error('生成打招呼语出错:', error);
     
@@ -258,7 +269,8 @@ async function generateGreeting(data) {
       onProgress(100, `生成失败: ${error.message}`, true);
     }
     
-    throw error;
+    // 返回一个包含错误的结构，与 callAzureOpenAI 的错误返回保持一致
+    return { success: false, error: error, responseDetails: { error: error.message, stack: error.stack } };
   } finally {
     // 确保完成进度
     if (typeof onProgress === 'function') {
@@ -274,44 +286,80 @@ async function callAzureOpenAI(prompt, config) {
   const baseUrl = config.apiEndpoint || (await loadAPIConfig()).apiEndpoint;
   const model = config.model || (await loadAPIConfig()).model;
   
+  const url = `${baseUrl}/v1/chat/completions`;
+  const requestBody = {
+    model: model,
+    messages: [
+      {
+        role: "system",
+        content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
+      },
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    temperature: 0.7,
+    max_tokens: 800
+  };
+
+  // 构建请求详情（脱敏API Key）
+  const requestDetails = {
+    url: url,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey ? apiKey.substring(0, 5) + '...' + apiKey.substring(apiKey.length - 5) : 'N/A'}`
+    },
+    body: requestBody
+  };
+
   try {
-    const url = `${baseUrl}/v1/chat/completions`;
-    
     const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: "system",
-            content: "你是一个专业的求职顾问，擅长帮助求职者编写专业的打招呼语。"
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0.7,
-        max_tokens: 800
-      })
+      body: JSON.stringify(requestBody)
     });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API调用失败: ${response.status} ${errorText}`);
+
+    const responseText = await response.text(); // 获取原始响应文本
+    let responseDetails;
+    let generatedText = '';
+    let errorOccurred = !response.ok;
+
+    try {
+        responseDetails = JSON.parse(responseText); // 尝试解析JSON
+        if (response.ok && responseDetails.choices && responseDetails.choices[0] && responseDetails.choices[0].message) {
+            generatedText = removeThinkTags(responseDetails.choices[0].message.content.trim());
+        } else if (!response.ok) {
+             console.error('API Response Error:', responseDetails);
+        }
+    } catch (e) {
+        console.error('Failed to parse API response as JSON:', responseText);
+        responseDetails = { error: 'Failed to parse response', responseText: responseText };
+        errorOccurred = true; // Mark as error if JSON parsing fails
     }
-    
-    const data = await response.json();
-    const generatedText = data.choices[0].message.content.trim();
-    // 处理文本，移除thinking标签
-    return removeThinkTags(generatedText);
+
+
+    if (errorOccurred) {
+      // 如果响应状态不是 ok 或 JSON 解析失败
+       throw new Error(`API调用失败: ${response.status} ${response.statusText || ''}. Response: ${JSON.stringify(responseDetails)}`);
+    }
+
+    // 返回成功结果，包含请求和响应详情
+    return { success: true, generatedText: generatedText, requestDetails: requestDetails, responseDetails: responseDetails };
+
   } catch (error) {
     console.error('API调用失败:', error);
-    throw error;
+    // 返回错误结果，包含请求详情和错误信息
+    const errorDetails = {
+        error: error.message,
+        stack: error.stack
+    };
+     // 即使出错，也尝试返回请求详情
+    return { success: false, error: error, requestDetails: requestDetails, responseDetails: errorDetails };
   }
 }
 
