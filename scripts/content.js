@@ -2,6 +2,8 @@
 let currentJobDescription = null;
 let currentJobHash = null; // 添加全局变量存储当前JD的哈希值
 let floatingWindowManager = null;
+let jobDescriptionCheckInterval = null; // 新增：用于存储定时器的ID
+let lastJobHash = null; // 新增：用于存储上一次检查的JD哈希值
 
 // 使用从env.js中加载的全局变量
 // 不再硬编码默认值
@@ -202,7 +204,10 @@ function initContentScript() {
     console.log('Boss直聘AI助手已初始化');
     
     // 自动检测岗位JD (延迟1秒执行)
-    setTimeout(autoDetectJobDescription, 1000);
+    // setTimeout(autoDetectJobDescription, 1000); // 移除这里的自动检测，由定时器接管
+    
+    // 启动 JD 变化检测定时器
+    startJobDescriptionChecker();
     
     // 添加变更监听
     let lastUrl = window.location.href;
@@ -219,7 +224,7 @@ function initContentScript() {
     observer.observe(document.body, { childList: true, subtree: true });
     
     // 添加调试按钮
-    addDebugButton();
+    // addDebugButton(); // 注释掉添加调试按钮的调用
     
     // 初始化一键发送按钮
     initQuickSendButton();
@@ -232,6 +237,98 @@ function initContentScript() {
     }
   } catch (error) {
     console.error('初始化content script失败:', error);
+  }
+}
+
+/**
+ * 检查 JD 是否变化并触发更新
+ */
+function checkJobDescriptionChange() {
+  try {
+    const jdData = extractJobDescription(); // 提取当前 JD
+    if (!jdData) {
+      // 如果当前页面没有JD，清除定时器或停止检查
+      // stopJobDescriptionChecker(); // 可以选择停止检查
+      return;
+    }
+
+    const newJobHash = calculateJobHash(jdData); // 计算新哈希
+
+    // 从存储中获取上一次的哈希值（或使用内存中的lastJobHash）
+    // 为了减少存储读写，这里优先使用内存变量
+    if (newJobHash !== lastJobHash) {
+      console.log('JD 已变化，旧哈希:', lastJobHash, '新哈希:', newJobHash);
+      lastJobHash = newJobHash; // 更新内存中的哈希值
+      currentJobDescription = jdData; // 更新当前 JD 文本
+
+      // 存储新的JD和哈希值到 storage
+      chrome.storage.local.set({
+        jdData: jdData,
+        currentJobHash: newJobHash
+      });
+
+      // 清除缓存的打招呼语 和 当前显示的打招呼语
+      chrome.storage.local.remove(['cachedGreeting', 'messageContent', 'currentJobGreeting']);
+
+      // 向 Popup 发送消息，告知 JD 已变化，需要更新打招呼语
+      chrome.runtime.sendMessage({ action: 'jdChanged' });
+
+      // 触发打招呼语重新生成（检查是否有简历数据）
+      chrome.storage.local.get(['resumeDataJson', 'resumeData'], async (result) => {
+        let resumeDataObj = null;
+        if (result.resumeDataJson) {
+          try {
+            resumeDataObj = JSON.parse(result.resumeDataJson);
+            if (resumeDataObj && resumeDataObj.compressedText && !resumeDataObj.resumeText) {
+              resumeDataObj.resumeText = await decompressResumeText(resumeDataObj.compressedText);
+            }
+          } catch (error) {
+            console.error('解析简历数据JSON失败:', error);
+          }
+        }
+        resumeDataObj = resumeDataObj || result.resumeData;
+
+        if (resumeDataObj) {
+          console.log('JD 变化，重新生成打招呼语...');
+          generateGreetingForCurrentJob(jdData, resumeDataObj);
+        } else {
+          console.log('JD 变化，但无简历数据，无法自动生成打招呼语');
+          // 可以更新按钮状态提示用户需要生成
+          updateQuickSendButtonState(false);
+        }
+      });
+    }
+    // else {
+    //   console.log('JD 未变化，哈希:', newJobHash); // 调试用，可移除
+    // }
+  } catch (error) {
+    console.error('检查 JD 变化时出错:', error);
+  }
+}
+
+/**
+ * 启动 JD 变化检测定时器
+ */
+function startJobDescriptionChecker() {
+  // 先停止可能存在的旧定时器
+  stopJobDescriptionChecker();
+  
+  // 先立即执行一次检查
+  checkJobDescriptionChange();
+  
+  // 设置定时器，每秒检查一次
+  jobDescriptionCheckInterval = setInterval(checkJobDescriptionChange, 1000);
+  console.log('JD 变化检测定时器已启动');
+}
+
+/**
+ * 停止 JD 变化检测定时器
+ */
+function stopJobDescriptionChecker() {
+  if (jobDescriptionCheckInterval) {
+    clearInterval(jobDescriptionCheckInterval);
+    jobDescriptionCheckInterval = null;
+    console.log('JD 变化检测定时器已停止');
   }
 }
 
@@ -293,46 +390,46 @@ function initFloatingWindow() {
     }
     
     // 创建一个简单的内联浮动窗口，而不是加载外部脚本
-    const floatingWindow = document.createElement('div');
-    floatingWindow.id = 'ai-assistant-floating-window';
-    floatingWindow.style.cssText = `
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      width: 50px;
-      height: 50px;
-      background-color: #00b38a;
-      background-image: url(${chrome.runtime.getURL('assets/boss.png')});
-      background-size: cover;
-      background-position: center;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-      z-index: 9999;
-    `;
-    floatingWindow.title = 'Boss直聘AI助手';
-    
-    // 点击事件
-    floatingWindow.addEventListener('click', () => {
-      chrome.runtime.sendMessage({action: 'openPopup'});
-    });
-    
-    document.body.appendChild(floatingWindow);
-    
-    // 创建简单的浮动窗口管理器
-    window.floatingWindowManager = {
-      window: floatingWindow,
-      isVisible: true,
-      toggleWindow: function() {
-        this.isVisible = !this.isVisible;
-        this.window.style.display = this.isVisible ? 'flex' : 'none';
-      }
-    };
-    
-    console.log('浮动窗口初始化成功');
+    // const floatingWindow = document.createElement('div'); // 注释掉创建浮动窗口
+    // floatingWindow.id = 'ai-assistant-floating-window';
+    // floatingWindow.style.cssText = `
+    //   position: fixed;
+    //   bottom: 20px;
+    //   right: 20px;
+    //   width: 50px;
+    //   height: 50px;
+    //   background-color: #00b38a;
+    //   background-image: url(${chrome.runtime.getURL('assets/boss.png')});
+    //   background-size: cover;
+    //   background-position: center;
+    //   border-radius: 50%;
+    //   display: flex;
+    //   align-items: center;
+    //   justify-content: center;
+    //   cursor: pointer;
+    //   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    //   z-index: 9999;
+    // `;
+    // floatingWindow.title = 'Boss直聘AI助手';
+    // 
+    // // 点击事件
+    // floatingWindow.addEventListener('click', () => {
+    //   chrome.runtime.sendMessage({action: 'openPopup'});
+    // });
+    // 
+    // document.body.appendChild(floatingWindow); // 注释掉添加浮动窗口到页面
+    // 
+    // // 创建简单的浮动窗口管理器
+    // window.floatingWindowManager = {
+    //   window: floatingWindow,
+    //   isVisible: true,
+    //   toggleWindow: function() {
+    //     this.isVisible = !this.isVisible;
+    //     this.window.style.display = this.isVisible ? 'flex' : 'none';
+    //   }
+    // };
+    // 
+    // console.log('浮动窗口初始化成功');
   } catch (error) {
     console.error('初始化浮动窗口失败:', error);
   }
@@ -478,6 +575,8 @@ function extractJobDescription() {
  * 自动检测职位JD并存储，同时自动生成打招呼语
  */
 function autoDetectJobDescription() {
+  // 这个函数现在可以被 checkJobDescriptionChange 替代或调用
+  // 保留它以便在需要时进行一次性检测，但主要逻辑在 checkJobDescriptionChange 中
   try {
     const currentJobId = getCurrentJobId();
     if (!currentJobId) {
@@ -679,11 +778,12 @@ async function generateGreetingForCurrentJob(jdData, resumeData) {
       
       console.log('打招呼语生成成功:', generatedText.substring(0, 30) + '...');
       
-      // 保存生成的打招呼语
+      // 保存生成的打招呼语 和 对应的 JD 哈希值
       chrome.storage.local.set({
         messageContent: generatedText,
         cachedGreeting: generatedText,
-        currentJobGreeting: generatedText // 添加这个键以便popup可以直接使用
+        currentJobGreeting: generatedText, // 添加这个键以便popup可以直接使用
+        greetingJobHash: currentJobHash // <--- 添加这一行：保存当前 JD 的哈希值
       }, () => {
         console.log('打招呼语已自动生成并保存');
         
@@ -1246,34 +1346,34 @@ function waitForChatBox(text, attempts) {
 // 添加调试按钮到页面
 function addDebugButton() {
   // 先检查是否已存在调试按钮
-  if (document.getElementById('debug-button')) {
-    return;
-  }
-  
-  try {
-    const debugButton = document.createElement('button');
-    debugButton.id = 'debug-button';
-    debugButton.textContent = '调试元素';
-    debugButton.style.position = 'fixed';
-    debugButton.style.bottom = '10px';
-    debugButton.style.right = '10px';
-    debugButton.style.zIndex = '9999';
-    debugButton.style.padding = '8px 12px';
-    debugButton.style.backgroundColor = '#ff6b6b';
-    debugButton.style.color = 'white';
-    debugButton.style.border = 'none';
-    debugButton.style.borderRadius = '4px';
-    debugButton.style.cursor = 'pointer';
-    
-    debugButton.addEventListener('click', function() {
-      console.log('调试按钮被点击');
-      debugPageSelectors();
-    });
-    
-    document.body.appendChild(debugButton);
-  } catch (error) {
-    console.error('添加调试按钮失败:', error);
-  }
+  // if (document.getElementById('debug-button')) { // 注释掉整个函数或其内容
+  //   return;
+  // }
+  // 
+  // try {
+  //   const debugButton = document.createElement('button');
+  //   debugButton.id = 'debug-button';
+  //   debugButton.textContent = '调试元素';
+  //   debugButton.style.position = 'fixed';
+  //   debugButton.style.bottom = '10px';
+  //   debugButton.style.right = '10px';
+  //   debugButton.style.zIndex = '9999';
+  //   debugButton.style.padding = '8px 12px';
+  //   debugButton.style.backgroundColor = '#ff6b6b';
+  //   debugButton.style.color = 'white';
+  //   debugButton.style.border = 'none';
+  //   debugButton.style.borderRadius = '4px';
+  //   debugButton.style.cursor = 'pointer';
+  //   
+  //   debugButton.addEventListener('click', function() {
+  //     console.log('调试按钮被点击');
+  //     debugPageSelectors();
+  //   });
+  //   
+  //   document.body.appendChild(debugButton);
+  // } catch (error) {
+  //   console.error('添加调试按钮失败:', error);
+  // }
 }
 
 // 调试工具 - 将页面选择器信息发送到控制台
@@ -1512,52 +1612,47 @@ function addQuickSendButton() {
     // 添加点击事件
     quickSendBtn.addEventListener('click', () => {
       try {
-        // 直接从popup获取当前文本框内容，而不是从存储中获取
-        chrome.runtime.sendMessage({action: 'getCurrentGreeting'}, (response) => {
-          if (chrome.runtime.lastError) {
-            console.warn('获取当前打招呼语失败:', chrome.runtime.lastError.message);
-            // 如果无法从popup获取，则回退到存储中的内容
-            fallbackToStoredGreeting();
+        // 首先获取必要的哈希值和打招呼语
+        chrome.storage.local.get(['messageContent', 'currentJobHash', 'greetingJobHash'], (result) => {
+          const greetingToSend = result.messageContent;
+          const currentHash = result.currentJobHash;
+          const greetingHash = result.greetingJobHash;
+
+          logDebug('一键沟通点击', { greetingToSend, currentHash, greetingHash });
+
+          if (!greetingToSend || greetingToSend.trim().length < 5) {
+            alert('打招呼语无效或过短，请在插件弹窗中检查或重新生成。');
             return;
           }
-          
-          if (response && response.greeting) {
-            const greeting = response.greeting;
-            
-            if (!greeting || greeting.trim().length < 5) {
-              alert('打招呼语至少需要5个字');
-              return;
+
+          // 检查哈希值
+          if (currentHash && greetingHash) {
+            if (currentHash === greetingHash) {
+              // 哈希匹配，直接发送
+              logDebug('哈希匹配，发送打招呼语');
+              sendGreetingToBoss(greetingToSend);
+            } else {
+              // 哈希不匹配，弹出确认框
+              logDebug('哈希不匹配，弹出确认框');
+              if (window.confirm('警告：当前打招呼语可能不是为最新岗位JD生成的。\n\n是否仍要发送？\n(点击"取消"可以等待或手动重新生成)')) {
+                logDebug('用户选择坚持发送旧打招呼语');
+                sendGreetingToBoss(greetingToSend);
+              } else {
+                logDebug('用户选择取消发送');
+                // 用户取消，不执行操作
+              }
             }
-            
-            // 发送打招呼语
-            sendGreetingToBoss(greeting);
           } else {
-            // 如果没有获取到内容，回退到存储中的内容
-            fallbackToStoredGreeting();
+            // 缺少哈希值，状态不确定，阻止发送并提示
+            logDebug('缺少哈希值，阻止发送');
+            alert('无法验证打招呼语是否为最新，请稍候重试或在插件弹窗中手动生成。');
           }
         });
       } catch (error) {
         console.error('一键沟通点击事件出错:', error);
         alert('操作失败: ' + error.message);
-        // 出错时回退到存储中的内容
-        fallbackToStoredGreeting();
       }
     });
-    
-    // 回退函数：从存储中获取打招呼语
-    function fallbackToStoredGreeting() {
-      chrome.storage.local.get(['messageContent'], (result) => {
-        const greeting = result.messageContent;
-        
-        if (!greeting || greeting.trim().length < 5) {
-          alert('打招呼语至少需要5个字');
-          return;
-        }
-        
-        // 发送打招呼语
-        sendGreetingToBoss(greeting);
-      });
-    }
     
     // 添加到页面
     chatBtn.parentNode.insertBefore(quickSendBtn, chatBtn.nextSibling);
@@ -1764,6 +1859,9 @@ function initQuickSendButton() {
   // 页面加载完成后，延迟1秒执行
   setTimeout(addQuickSendButton, 1000);
   
+  // 监听 JD 变化后更新按钮状态
+  // (可以在 checkJobDescriptionChange 函数中调用 updateQuickSendButtonState)
+  
   // 监听页面变化，在页面变化时重新添加按钮
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
@@ -1869,3 +1967,5 @@ async function decompressResumeText(compressedText) {
     return compressedText;
   }
 }
+
+

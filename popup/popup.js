@@ -197,10 +197,18 @@ function initUI() {
   
   // 监听来自content script的消息更新
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    logDebug('Popup收到消息:', request);
     if (request.action === 'updateMessageContent' && request.content) {
+      logDebug('更新打招呼语内容:', request.content);
       messageContent.value = request.content;
+      messageContent.placeholder = '生成的打招呼语将显示在这里...';
       // 触发input事件以更新按钮状态
       messageContent.dispatchEvent(new Event('input'));
+      // 隐藏进度条
+      updateMessageProgress(100, '生成完成!');
+      setTimeout(() => {
+        progressContainer.classList.add('hidden');
+      }, 1000); // 1秒后隐藏
     } else if (request.action === 'getCurrentGreeting') {
       // 获取当前文本框中的打招呼语
       const messageContent = document.getElementById('message-content');
@@ -210,6 +218,16 @@ function initUI() {
         sendResponse({error: '无法获取当前打招呼语'});
       }
       return true; // 表示会异步发送响应
+    } else if (request.action === 'jdChanged') {
+      logDebug('收到JD变化通知');
+      // JD 变化，清空打招呼语框并显示提示
+      messageContent.value = '';
+      messageContent.placeholder = '岗位JD已变化，正在自动生成新的打招呼语...';
+      sendBtn.disabled = true; // 禁用发送按钮
+      generateBtn.disabled = true; // 禁用生成按钮直到新JD加载和新打招呼语生成
+      // 显示进度条
+      progressContainer.classList.remove('hidden');
+      updateMessageProgress(0, '岗位JD已变化，准备生成...');
     }
   });
   
@@ -952,7 +970,7 @@ function sendGreeting() {
       }
       
       if (response && response.success) {
-        alert('发送成功！');
+        // alert('发送成功！'); // 注释掉这行
       } else {
         alert('发送失败，请确保您在Boss直聘岗位页面');
       }
